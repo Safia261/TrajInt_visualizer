@@ -16,7 +16,8 @@ DATASETS = {
         "format": "centroid",
         "scale": "pixel",
         "pixels_per_meter": 21.185660421977854,
-        "fps": 0.5
+        "fps": 0.5,
+        "has_cars": True
     },
 
     "ctv_area1": {
@@ -39,7 +40,8 @@ DATASETS = {
         "scale": "meter",
         "meters_to_pixels": 24,
         "fps": 29.97,
-        "recommended_speed": 30
+        "recommended_speed": 30,
+        "has_cars": False
     },
 
     "ctv_area2": {
@@ -61,7 +63,8 @@ DATASETS = {
         "scale": "meter",
         "meters_to_pixels": 24,
         "fps": 29.97,
-        "recommended_speed": 30
+        "recommended_speed": 30,
+        "has_cars": False
     },
 
     "stanford": {
@@ -83,7 +86,8 @@ DATASETS = {
 
         "format": "centroid", # à vérifier avec le doc, en attente d'envoi par Josué
         "scale": "meter", # à vérifier avec le doc
-        "fps": 0.5 # ????
+        "fps": 0.5, # ????
+        "has_cars": True
     },
 
     "vru": {
@@ -100,7 +104,8 @@ DATASETS = {
 
         "format": "centroid",
         "scale": "meter",
-        "fps": 1 # ????
+        "fps": 1, # ????
+        "has_cars": False
     }
 }
 
