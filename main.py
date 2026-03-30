@@ -90,7 +90,6 @@ def parse_args():
         type=float,
         default=None,
         help="Facteur d'accélération temporelle pour le mode animé."
-        # après plusieurs tests, meilleur = 40 -> en défaut ?
     )
 
     parser.add_argument(
@@ -211,10 +210,18 @@ def main():
 
 
 def run_visualization(df, image_path, cfg, args):
-    if args.speed is not None:
-        speed = args.speed
+    # if args.speed is not None:
+    #     speed = args.speed
+    # else:
+    #     speed = cfg.get("recommended_speed", 1.0)
+
+    if args.use_unique_timestamps:
+        speed = 1.0  # temps réel strict (pour ne pas appliquer recommended_speed quand cet arg est utilisé)
     else:
-        speed = cfg.get("recommended_speed", 1.0)
+        if args.speed is not None:
+            speed = args.speed
+        else:
+            speed = cfg.get("recommended_speed", 1.0)
 
     if args.mode == "static":
         plot_static_trajectories(
