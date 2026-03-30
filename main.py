@@ -155,25 +155,12 @@ def main():
 
         df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
         df = prepare_data(df, no_cars=args.no_cars)
+        _, _ = analyze_initial_nb_traj_interactions(df)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)
-            df = filter_spatial_car_influence(df, distance_threshold=5.0)
-
-
-
-        # if cfg.get("has_cars", False):
-        #     if args.filter_mode == "frame":
-        #         df = remove_frames_with_cars(df)
-
-        #     elif args.filter_mode == "local":
-        #         df = remove_car_influence(df, args.car_distance)
-
-        #     elif args.filter_mode == "agent":
-        #         df = remove_agents_influenced_by_cars(df, args.car_distance)
-
-        #     # suppression finale des voitures (affichage)
-        #     df = df[df[COL_CLASS].isin([1, 2])]
+            # df = filter_spatial_car_influence(df, distance_threshold=5.0)
+            df, _ = filter_coexisting_with_cars(df)
 
         run_visualization(df, image_path, cfg, args)
 
@@ -197,11 +184,13 @@ def main():
 
                 df, image_path, cfg = load_dataset(args.dataset, f)
                 df = prepare_data(df, no_cars=args.no_cars)
+                _, _ = analyze_initial_nb_traj_interactions(df)
 
                 # filtrage
                 if cfg.get("has_cars", False):
                     # distances = analyze_car_vru_distances(df)
-                    df = filter_spatial_car_influence(df, distance_threshold=5.0)
+                    # df = filter_spatial_car_influence(df, distance_threshold=5.0)
+                    df, _ = filter_coexisting_with_cars(df)
 
                 run_visualization(df, image_path, cfg, args)
 
