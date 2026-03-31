@@ -124,6 +124,13 @@ def parse_args():
         help="Type de comportement VRU"
     )
 
+    parser.add_argument(
+        "--no-smoothing-kalman",
+        action="store_true",
+        help="Désactiver le lissage avec filtre de Kalman"
+        # Filtre activé par défaut pour CTV
+    )
+
     return parser.parse_args()
 
 
@@ -156,6 +163,9 @@ def main():
         df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
         df = prepare_data(df, no_cars=args.no_cars)
         _, _ = analyze_initial_nb_traj_interactions(df)
+
+        if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
+            df = apply_kalman_filter(df)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)

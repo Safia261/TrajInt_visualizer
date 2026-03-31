@@ -228,3 +228,85 @@ def filter_coexisting_with_cars(df):
 
     return df_filtered, bad_ids
 
+
+
+
+
+###############################################
+# Pour CTV, lissage des trajectoires (filtre de Kalman)
+###############################################
+
+def apply_kalman_filter(df):
+    filtered_data = []
+
+    for object_id, g in df.groupby(COL_ID):
+        g = g.sort_values(COL_TIME)
+
+        xs = g["x_m"].values
+        ys = g["y_m"].values
+
+        if len(xs) < 2:
+            filtered_data.append(g)
+            continue
+
+        xs_f, ys_f = kalman_filter_2d(xs, ys)
+
+        g = g.copy()
+        g["x_m"] = xs_f
+        g["y_m"] = ys_f
+
+        filtered_data.append(g)
+
+    return pd.concat(filtered_data, ignore_index=True)
+
+
+def kalman_filter_2d(xs, ys):
+    n = len(xs)
+
+    # État : [x, y, vx, vy]
+    x = np.array([xs[0], ys[0], 0, 0], dtype=float)
+
+    # Matrice de transition (modèle vitesse constante)
+    dt = 1.0
+    F = np.array([
+        [1, 0, dt, 0],
+        [0, 1, 0, dt],
+        [0, 0, 1,  0],
+        [0, 0, 0,  1]
+    ])
+
+    # Observation : on observe seulement (x, y)
+    H = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0]
+    ])
+
+    # Bruit (à ajuster !)
+    Q = np.eye(4) * 0.01   # bruit du modèle
+    R = np.eye(2) * 0.5    # bruit de mesure
+
+    # Covariance initiale
+    P = np.eye(4)
+
+    xs_f = []
+    ys_f = []
+
+    for i in range(n):
+        z = np.array([xs[i], ys[i]])
+
+        # prédiction
+        x = F @ x
+        P = F @ P @ F.T + Q
+
+        # update
+        y = z - (H @ x)
+        S = H @ P @ H.T + R
+        K = P @ H.T @ np.linalg.inv(S)
+
+        x = x + K @ y
+        P = (np.eye(4) - K @ H) @ P
+
+        xs_f.append(x[0])
+        ys_f.append(x[1])
+
+    return np.array(xs_f), np.array(ys_f)
