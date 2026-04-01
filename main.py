@@ -131,6 +131,22 @@ def parse_args():
         # Filtre activé par défaut pour CTV
     )
 
+    parser.add_argument(
+        "--scene",
+        type=str,
+        default=None,
+        help="Nom de la scène (ex: bookstore, nexus, quad...)"
+        # pour Stanford dataset
+    )
+
+    parser.add_argument(
+        "--video",
+        type=str,
+        default=None,
+        help="Nom de la vidéo (ex: video0, video1...)"
+        # pour Stanford dataset
+    )
+
     return parser.parse_args()
 
 
@@ -150,6 +166,13 @@ def main():
     if cfg["type"] == "vru":
         df, image_path, cfg = load_dataset(args.dataset, None, args)
         df = prepare_data(df, no_cars=args.no_cars)
+        run_visualization(df, image_path, cfg, args)
+        return
+    
+    if args.dataset == "stanford2":
+        df, image_path, cfg = load_dataset(args.dataset, None, args)
+        df = prepare_data(df, no_cars=args.no_cars)
+        _, _ = analyze_initial_nb_traj_interactions(df)
         run_visualization(df, image_path, cfg, args)
         return
 

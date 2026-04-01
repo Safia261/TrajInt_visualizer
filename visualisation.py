@@ -38,15 +38,32 @@ def add_background(ax, img, img_w_m, img_h_m):
     ax.grid(True, alpha=0.25)
 
 
-def add_legend(ax, include_cars=True):
-    legend_elements = [
-        Line2D([0], [0], color=CLASS_COLORS[1], lw=2, label="Pedestrian"),
-        Line2D([0], [0], color=CLASS_COLORS[2], lw=2, label="Cyclist"),
-    ]
+def add_legend(ax, df):
+    # legend_elements = [
+    #     Line2D([0], [0], color=CLASS_COLORS[1], lw=2, label="Pedestrian"),
+    #     Line2D([0], [0], color=CLASS_COLORS[2], lw=2, label="Cyclist"),
+    # ]
 
-    if include_cars:
+    # if include_cars:
+    #     legend_elements.append(
+    #         Line2D([0], [0], color=CLASS_COLORS[3], lw=2, label="Car")
+    #     )
+
+    # ax.legend(handles=legend_elements, loc="upper right")
+
+    classes_present = sorted(df[COL_CLASS].unique())
+
+    legend_elements = []
+
+    for c in classes_present:
+        if c == 0:
+            continue
+
+        name = CLASS_NAMES.get(c, f"Class {c}")
+        color = CLASS_COLORS.get(c, "yellow")
+
         legend_elements.append(
-            Line2D([0], [0], color=CLASS_COLORS[3], lw=2, label="Car")
+            Line2D([0], [0], color=color, lw=2, label=name)
         )
 
     ax.legend(handles=legend_elements, loc="upper right")
@@ -88,11 +105,11 @@ def plot_static_trajectories(df, image_path, cfg, show_ids=True):
         ax.set_xlim(df["x_m"].min(), df["x_m"].max())
         ax.set_ylim(df["y_m"].max(), df["y_m"].min())
 
-    include_cars = 3 in set(df[COL_CLASS].unique())
+    # include_cars = 3 in set(df[COL_CLASS].unique())
 
     # fig, ax = plt.subplots(figsize=(12, 8))
     # add_background(ax, img, img_w_m, img_h_m)
-    add_legend(ax, include_cars=include_cars)
+    add_legend(ax, df)
     add_mouse_coordinates(fig, ax)
 
     grouped = df.groupby(COL_ID)
@@ -259,7 +276,7 @@ def animate_trajectories(
         speed=speed
     )
 
-    include_cars = 3 in set(df[COL_CLASS].unique()) # à revoir pour ça
+    # include_cars = 3 in set(df[COL_CLASS].unique()) # à revoir pour ça
 
     agents = {}
     for object_id, g in df.groupby(COL_ID):
@@ -286,7 +303,7 @@ def animate_trajectories(
 
     # fig, ax = plt.subplots(figsize=(12, 8))
     # add_background(ax, img, img_w_m, img_h_m)
-    add_legend(ax, include_cars=include_cars)
+    add_legend(ax, df)
     coord_text = add_mouse_coordinates(fig, ax)
 
     ax.set_title("Trajectoires - affichage animé")

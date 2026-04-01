@@ -84,9 +84,35 @@ DATASETS = {
             "meta": "metaId"
         },
 
-        "format": "centroid", # à vérifier avec le doc, en attente d'envoi par Josué
-        "scale": "meter", # à vérifier avec le doc
-        "fps": 0.5, # ????
+        "format": "centroid", # pas spécifié dans l'article
+        "scale": "meter", # pas spécifié dans l'article
+        "fps": 0.5, # pas spécifié dans l'article
+        "has_cars": True
+    },
+
+    "stanford2": {
+        "type": "txt",
+        "folder": "stanford_campus_dataset/annotations",
+
+        "image": "reference.jpg",
+
+        "columns": {
+            "id": 0,
+            "xmin": 1,
+            "ymin": 2,
+            "xmax": 3,
+            "ymax": 4,
+            "frame": 5,
+            "lost": 6,
+            "occluded": 7,
+            "generated": 8,
+            "label": 9
+        },
+
+        "format": "bbox", # pas précisé dans l'article
+        "scale": "pixel", # pas précisé dans l'article mais semble cohérent d'après les valeurs
+        "pixels_per_meter": 1.0, # pas précisé dans l'article
+        "fps": 1, # pas précisé dans l'article
         "has_cars": True
     },
 
@@ -119,13 +145,19 @@ COL_CLASS = "user_type"
 CLASS_NAMES = {
     1: "Pedestrian",
     2: "Cyclist",
-    3: "Car"
+    3: "Car",
+    4: "Cart",
+    5: "Skater",
+    6: "Bus"
 }
 
 CLASS_COLORS = {
     1: "tab:blue",
     2: "tab:green",
-    3: "tab:red"
+    3: "tab:red",
+    4: "tab:orange",
+    5: "tab:purple",
+    6: "tab:brown"
 }
 
 # Affichage statique

@@ -22,8 +22,11 @@ def load_dataset(dataset_name, file_path, args=None):
 
     cfg = DATASETS[dataset_name]
 
-    if cfg["type"] == "vru":
+    if cfg["type"] == "vru": # mettre dataset_name == vru plutôt ??
         return load_vru_dataset(cfg, args.vru_type, args.vru_behavior)
+    
+    if dataset_name == "stanford2":
+        return load_stanford2_dataset(cfg, args.scene, args.video)
 
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"Fichier introuvable : {file_path}")
@@ -80,107 +83,84 @@ def load_dataset(dataset_name, file_path, args=None):
     return df, image_path, cfg
 
 
-# def load_vru_folder(cfg):
-#     folder = cfg["folder"]
 
-#     files = glob.glob(os.path.join(folder, "*.csv"))
 
-#     if not files:
-#         raise FileNotFoundError(f"Aucun CSV trouvé dans {folder}")
+def load_stanford2_dataset(cfg, scene=None, video=None):
+    root = cfg["folder"]
 
-#     all_data = []
-#     global_id = 0
+    # ===== CHECK SCENE =====
+    if scene is None:
+        scenes = os.listdir(root)
+        scene = scenes[0]  # fallback
+        print(f"[INFO] Scene par défaut : {scene}")
 
-#     for f in files:
-#         df = pd.read_csv(f)
+    scene_path = os.path.join(root, scene)
 
-#         col = cfg["columns"]
+    if not os.path.isdir(scene_path):
+        raise ValueError(f"Scene invalide : {scene}")
 
-#         # ===== rename =====
-#         df = df.rename(columns={
-#             col["time"]: COL_TIME,
-#             col["x"]: "x_m",
-#             col["y"]: "y_m"
-#         })
+    # ===== CHECK VIDEO =====
+    if video is None:
+        videos = os.listdir(scene_path)
+        video = videos[0]
+        print(f"[INFO] Video par défaut : {video}")
 
-#         # ===== ID unique (1 fichier = 1 trajectoire) =====
-#         df[COL_ID] = global_id
-#         global_id += 1
+    video_path = os.path.join(scene_path, video)
 
-#         # ===== classe =====
-#         df[COL_CLASS] = 1 # A REVOIR!!!!
+    ann_file = os.path.join(video_path, "annotations.txt")
+    ref_img = os.path.join(video_path, "reference.jpg")
 
-#         df["__file__"] = os.path.basename(f)
+    if not os.path.exists(ann_file):
+        raise FileNotFoundError(f"annotations.txt introuvable dans {video_path}")
 
-#         all_data.append(df)
+    # ===== LOAD =====
+    df = pd.read_csv(ann_file, sep=" ", header=None)
 
-#     df_all = pd.concat(all_data, ignore_index=True)
+    df.columns = [
+        "track_id",
+        "xmin", "ymin", "xmax", "ymax",
+        "frame",
+        "lost", "occluded", "generated",
+        "label"
+    ]
 
-#     return df_all, None, cfg
+    # filtre
+    df = df[df["lost"] == 0]
 
-# def load_vru_dataset(cfg, vru_type, vru_behavior):
-#     base_folder = cfg["folder"]
+    # conversion bbox -> centroid
+    df["x_m"] = (df["xmin"] + df["xmax"]) / 2
+    df["y_m"] = (df["ymin"] + df["ymax"]) / 2
 
-#     types = []
-#     if vru_type == "both":
-#         types = ["pedestrians", "cyclists"]
-#     else:
-#         types = [vru_type]
+    # normalisation
+    df = df.rename(columns={
+        "track_id": COL_ID,
+        "frame": COL_TIME
+    })
 
-#     behaviors = []
-#     if vru_behavior == "all":
-#         behaviors = ["starting", "moving", "stopping", "waiting"]
-#     else:
-#         behaviors = [vru_behavior]
+    # classification des usagers
+    def map_class(label):
+        label = str(label).replace('"', '')
 
-#     all_data = []
-#     global_id = 0
+        mapping = {
+            "Pedestrian": 1,
+            "Biker": 2,
+            "Car": 3,
+            "Cart": 4,
+            "Skater": 5,
+            "Bus": 6
+        }
 
-#     for t in types:
-#         for b in behaviors:
-#             folder = os.path.join(base_folder, t, b)
-#             files = glob.glob(os.path.join(folder, "*.csv"))
+        return mapping.get(label, 0)
 
-#             for f in files:
-#                 df = pd.read_csv(f)
 
-#                 # ===== colonnes (à adapter si besoin) =====
-#                 df = df.rename(columns={
-#                     "timestamp": COL_TIME,
-#                     "x": "x_m",
-#                     "y": "y_m"
-#                 })
+    df[COL_CLASS] = df["label"].apply(map_class)
 
-#                 # ===== ID =====
-#                 # CAS 1 : fusion comportements -> même agent
-#                 # CAS 2 : sinon -> nouvel agent
+    df["scene"] = scene
+    df["video"] = video
+    df["__file__"] = f"{scene}_{video}"
 
-#                 if vru_behavior == "all":
-#                     # on essaye de garder l'id fichier
-#                     agent_id = os.path.splitext(os.path.basename(f))[0]
-#                 else:
-#                     agent_id = global_id
-#                     global_id += 1
+    return df, ref_img, cfg
 
-#                 df[COL_ID] = agent_id
-
-#                 # ===== classe =====
-#                 if t == "pedestrians":
-#                     df[COL_CLASS] = 1
-#                 else:
-#                     df[COL_CLASS] = 2
-
-#                 df["behavior"] = b
-#                 df["__file__"] = os.path.basename(f)
-
-#                 all_data.append(df)
-
-#     df_all = pd.concat(all_data, ignore_index=True)
-
-#     # Attention si IDs sont strings alors faut peut-être convertir
-#     df_all[COL_ID] = df_all[COL_ID].astype("category").cat.codes
-
-#     return df_all, None, cfg
 
 
 def load_vru_dataset(cfg, vru_type, vru_behavior):
@@ -204,9 +184,6 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
     global_id = 0
     time_offset = 0  # pour enchaîner les comportements
 
-    # =========================================================
-    # BOUCLE PRINCIPALE
-    # =========================================================
     for b in behavior_order:
         if b not in behaviors:
             continue
@@ -220,14 +197,13 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
             for f in files:
                 df = pd.read_csv(f)
 
-                # ===== rename colonnes =====
                 df = df.rename(columns={
                     "timestamp": COL_TIME,
                     "x": "x_m",
                     "y": "y_m"
                 })
 
-                # ===== ID unique =====
+                # ID unique
                 # df[COL_ID] = global_id
                 # global_id += 1
 
@@ -235,19 +211,19 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
                 # print(filename)
                 df[COL_ID] = int(filename)
 
-                # ===== classe =====
+                # classe
                 if t == "pedestrians":
                     df[COL_CLASS] = 1
                 else:
                     df[COL_CLASS] = 2
 
-                # ===== info debug =====
+                # info debug
                 df["behavior"] = b
                 df["__file__"] = os.path.basename(f)
 
                 block_data.append(df)
 
-        # ===== si aucun fichier dans ce behavior =====
+        # si aucun fichier dans ce behavior
         if not block_data:
             continue
 
@@ -272,7 +248,7 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
 
         all_data.append(block_df)
 
-    # ===== concat final =====
+    # concat final
     if not all_data:
         raise ValueError("Aucune donnée VRU chargée")
 
