@@ -236,7 +236,7 @@ def filter_coexisting_with_cars(df):
 # Pour CTV, lissage des trajectoires (filtre de Kalman)
 ###############################################
 
-def apply_kalman_filter(df):
+def apply_kalman_filter(df, R_value=0.5):
     filtered_data = []
 
     for object_id, g in df.groupby(COL_ID):
@@ -249,7 +249,8 @@ def apply_kalman_filter(df):
             filtered_data.append(g)
             continue
 
-        xs_f, ys_f = kalman_filter_2d(xs, ys)
+        # xs_f, ys_f = kalman_filter_2d(xs, ys)
+        xs_f, ys_f = kalman_filter_2d(xs, ys, R_value)
 
         g = g.copy()
         g["x_m"] = xs_f
@@ -260,7 +261,7 @@ def apply_kalman_filter(df):
     return pd.concat(filtered_data, ignore_index=True)
 
 
-def kalman_filter_2d(xs, ys):
+def kalman_filter_2d(xs, ys, R_value=0.5):
     n = len(xs)
 
     # État : [x, y, vx, vy]
@@ -282,8 +283,9 @@ def kalman_filter_2d(xs, ys):
     ])
 
     # Bruit (à ajuster !)
-    Q = np.eye(4) * 0.01   # bruit du modèle
-    R = np.eye(2) * 0.5    # bruit de mesure
+    Q = np.eye(4) * 0.01   # bruit du modèle (= à quel point le mouvement peut changer | petit -> mouv rigide + traj lisse | grand -> mouv flexible + traj réactive | vaut mieux petit pour VRUs)
+    # R = np.eye(2) * 0.5    # bruit de mesure (petit -> peu de lissage et bruit visible | grand -> fort lissage, trajectoire plus propre)
+    R = np.eye(2) * R_value
 
     # Covariance initiale
     P = np.eye(4)
@@ -310,3 +312,105 @@ def kalman_filter_2d(xs, ys):
         ys_f.append(x[1])
 
     return np.array(xs_f), np.array(ys_f)
+
+
+def compare_kalman_R(df, R_values, agent_id=None):
+    import matplotlib.pyplot as plt
+
+    if agent_id is None:
+        agent_id = df[COL_ID].iloc[0]
+
+    g = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
+
+    xs = g["x_m"].values
+    ys = g["y_m"].values
+
+    plt.figure(figsize=(10, 8))
+
+    # trajectoire brute
+    plt.plot(xs, ys, 'k--', label="Raw", alpha=0.5)
+
+    for R in R_values:
+        xs_f, ys_f = kalman_filter_2d(xs, ys, R_value=R)
+        # smoothness = compute_smoothness(xs_f, ys_f)
+        # print(f"R={R} -> smoothness={smoothness:.4f}")
+        plt.plot(xs_f, ys_f, label=f"R={R}")
+
+    plt.legend()
+    plt.title(f"Comparaison Kalman - agent {agent_id}")
+    plt.xlabel("x (m)")
+    plt.ylabel("y (m)")
+    plt.gca().invert_yaxis()
+    plt.grid()
+
+    plt.show()
+
+# fonction peut-être pas si utile
+# def compute_smoothness(xs, ys):
+#     # variation de vitesse par rapport aux données intiales
+#     dx = np.diff(xs)
+#     dy = np.diff(ys)
+#     speed = np.hypot(dx, dy)
+
+#     return np.std(speed)
+
+
+def get_one_agent_per_class(df):
+    agents = {}
+
+    for cls in [1, 2]:  # 1=piéton, 2=cycliste
+        subset = df[df[COL_CLASS] == cls]
+
+        if len(subset) == 0:
+            continue
+
+        # prendre celui avec la trajectoire la plus longue (meilleur pour analyse comparative ?)
+        lengths = subset.groupby(COL_ID).size()
+        best_id = lengths.idxmax()
+
+        agents[cls] = best_id
+
+    return agents
+
+
+def compare_kalman_R_two_agents(df, R_values):
+    import matplotlib.pyplot as plt
+
+    agents = get_one_agent_per_class(df)
+
+    fig, axes = plt.subplots(1, len(agents), figsize=(14, 6))
+
+    if len(agents) == 1:
+        axes = [axes]
+
+    for ax, (cls, agent_id) in zip(axes, agents.items()):
+        g = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
+
+        xs = g["x_m"].values
+        ys = g["y_m"].values
+
+        # brute
+        ax.plot(xs, ys, 'k--', label="Raw", alpha=0.5)
+
+        title = "Pedestrian" if cls == 1 else "Cyclist"
+        ax.set_title(f"{title} (ID={agent_id})")
+        print(f"\n{title} (ID={agent_id})")
+        # smoothness = compute_smoothness(xs, ys)
+        # print(f"Raw -> smoothness={smoothness:.4f}")
+
+        for R in R_values:
+            xs_f, ys_f = kalman_filter_2d(xs, ys, R_value=R)
+            # smoothness = compute_smoothness(xs_f, ys_f)
+            # print(f"R={R:<4} -> smoothness={smoothness:.4f}")
+            ax.plot(xs_f, ys_f, label=f"R={R}")
+
+
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        ax.invert_yaxis()
+        ax.grid()
+        ax.legend()
+
+    plt.suptitle("Comparaison Kalman selon R")
+    plt.tight_layout()
+    plt.show()

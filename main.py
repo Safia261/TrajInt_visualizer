@@ -172,7 +172,7 @@ def main():
     if args.dataset == "stanford2":
         df, image_path, cfg = load_dataset(args.dataset, None, args)
         df = prepare_data(df, no_cars=args.no_cars)
-        _, _ = analyze_initial_nb_traj_interactions(df)
+        # _, _ = analyze_initial_nb_traj_interactions(df)
         run_visualization(df, image_path, cfg, args)
         return
 
@@ -188,7 +188,15 @@ def main():
         _, _ = analyze_initial_nb_traj_interactions(df)
 
         if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
-            df = apply_kalman_filter(df)
+            # df = apply_kalman_filter(df)
+            # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
+            # compare_kalman_R(df, R_values, agent_id=2)
+            # compare_kalman_R_two_agents(df, R_values)
+            # print("\nRaw data")
+            # analyze_speeds(df, cfg)
+            df = apply_kalman_filter(df, R_value=1.0)
+            # print("\nFiltred data")
+            # analyze_speeds(df, cfg)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)
@@ -220,6 +228,17 @@ def main():
                 _, _ = analyze_initial_nb_traj_interactions(df)
 
                 # filtrage
+                if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
+                    # df = apply_kalman_filter(df)
+                    # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
+                    # compare_kalman_R(df, R_values, agent_id=2)
+                    # compare_kalman_R_two_agents(df, R_values)
+                    # print("\nRaw data")
+                    # analyze_speeds(df, cfg)
+                    df = apply_kalman_filter(df, R_value=1.0)
+                    # print("\nFiltred data")
+                    # analyze_speeds(df, cfg)
+                    
                 if cfg.get("has_cars", False):
                     # distances = analyze_car_vru_distances(df)
                     # df = filter_spatial_car_influence(df, distance_threshold=5.0)
