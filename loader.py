@@ -27,6 +27,9 @@ def load_dataset(dataset_name, file_path, args=None):
     
     if dataset_name == "stanford2":
         return load_stanford2_dataset(cfg, args.scene, args.video)
+    
+    if cfg["type"] == "ind":
+        return load_ind_dataset(cfg, file_path)
 
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"Fichier introuvable : {file_path}")
@@ -255,3 +258,89 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
     df_all = pd.concat(all_data, ignore_index=True)
 
     return df_all, None, cfg
+
+
+
+
+def map_ind_class(label):
+    mapping = {
+        "pedestrian": 1,
+        "bicycle": 2,
+        "car": 3,
+        "truck_bus": 3,
+        "truck": 3,
+        "bus": 6,
+        "van": 3,
+        "motorcycle": 7
+    }
+    return mapping.get(label, 0)
+
+
+def load_ind_dataset(cfg, recording_id):
+    folder = cfg["folder"]
+
+    # ===== récupérer recordingId depuis filename =====
+    recording_id = str(recording_id).zfill(2)
+    # filename = os.path.basename(file_path) # à changer pour n'entrer que l'ID du recording à la place
+    # recording_id = filename.split("_")[0]
+
+    # ===== chemins fichiers =====
+    tracks_file = os.path.join(folder, f"{recording_id}_tracks.csv")
+    meta_file = os.path.join(folder, f"{recording_id}_tracksMeta.csv")
+
+    if not os.path.exists(tracks_file) or not os.path.exists(meta_file):
+        raise FileNotFoundError(f"Fichiers manquants pour recording {recording_id}")
+    
+    meta_rec_file = os.path.join(folder, f"{recording_id}_recordingMeta.csv")
+
+    if not os.path.exists(meta_rec_file):
+        raise FileNotFoundError(f"{meta_rec_file} introuvable")
+
+    df_meta_rec = pd.read_csv(meta_rec_file)
+
+    x_origin = df_meta_rec["xUtmOrigin"].iloc[0]
+    y_origin = df_meta_rec["yUtmOrigin"].iloc[0]
+    px_to_m = df_meta_rec["orthoPxToMeter"].iloc[0]
+
+    # ===== LOAD =====
+    df_tracks = pd.read_csv(tracks_file)
+    df_meta = pd.read_csv(meta_file)
+
+    # ===== MERGE =====
+    df = pd.merge(
+        df_tracks,
+        df_meta[["trackId", "class"]],
+        on="trackId",
+        how="left"
+    )
+
+    # ===== NORMALISATION =====
+    df = df.rename(columns={
+        "frame": COL_TIME,
+        "trackId": COL_ID
+    })
+
+    df[COL_CLASS] = df["class"].apply(map_ind_class)
+
+    # ===== POSITION =====
+    # df["x_m"] = df["xCenter"]
+    # df["y_m"] = df["yCenter"]
+    df["x_m"] = df["xCenter"] - x_origin
+    df["y_m"] = df["yCenter"] - y_origin
+
+    # df["__file__"] = filename
+    df["__file__"] = recording_id
+
+    # ===== IMAGE =====
+    # que 2 images ont été conservées (une par intersection) pour réduire la taille des dossiers
+    rid = int(recording_id)
+    image_path = None
+    if 0 <= rid <= 6:
+        img_path = os.path.join(folder, "03_background.png")
+    elif 18 <= rid <= 29:
+        img_path = os.path.join(folder, "22_background.png")
+   
+    if image_path is not None and not os.path.exists(image_path):
+        image_path = None
+
+    return df, img_path, cfg

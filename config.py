@@ -20,6 +20,25 @@ DATASETS = {
         "has_cars": True
     },
 
+    "ind": {
+        "type": "ind",
+        "folder": "InD",
+        "image": None,  # géré dynamiquement lors du dataset load
+        "file_pattern": "*_tracks.csv", # à intégrer plus tard pour faciliter les choses
+
+        "columns": {
+            "time": "frame",
+            "id": "trackId",
+            "x": "xCenter",
+            "y": "yCenter"
+        },
+
+        "format": "centroid",
+        "scale": "meter",
+        "fps": 25,
+        "has_cars": True
+    },
+
     "ctv_area1": {
         "type": "csv",
         "folder": "CTV_Dataset_v2/transformed/area1",
@@ -148,7 +167,8 @@ CLASS_NAMES = {
     3: "Car",
     4: "Cart",
     5: "Skater",
-    6: "Bus"
+    6: "Bus",
+    7: "Motorcycle"
 }
 
 CLASS_COLORS = {
@@ -157,7 +177,8 @@ CLASS_COLORS = {
     3: "tab:red",
     4: "tab:orange",
     5: "tab:purple",
-    6: "tab:brown"
+    6: "tab:brown",
+    7: "tab:yellow"
 }
 
 # Affichage statique

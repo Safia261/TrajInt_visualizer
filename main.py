@@ -181,9 +181,15 @@ def main():
         if args.file is None:
             raise ValueError("Tu dois spécifier --file en mode single")
 
-        file_path = os.path.join(folder, args.file)
+        if args.dataset == "ind":
+            df, image_path, cfg = load_dataset(args.dataset, args.file)
+        else:
+            file_path = os.path.join(folder, args.file)
+            df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
 
-        df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
+        # file_path = os.path.join(folder, args.file)
+
+        # df, image_path, cfg = load_dataset(args.dataset, file_path)
         df = prepare_data(df, no_cars=args.no_cars)
         _, _ = analyze_initial_nb_traj_interactions(df)
 
@@ -198,7 +204,7 @@ def main():
             # print("\nFiltred data")
             # analyze_speeds(df, cfg)
 
-        if cfg.get("has_cars", False):
+        if cfg.get("has_cars", False) and args.dataset.startswith("noname"):
             # distances = analyze_car_vru_distances(df)
             # df = filter_spatial_car_influence(df, distance_threshold=5.0)
             df, _ = filter_coexisting_with_cars(df)

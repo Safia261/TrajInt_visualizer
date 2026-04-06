@@ -111,6 +111,10 @@ def filter_spatial_car_influence(df, distance_threshold):
     # Comptage initial par classe
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
+    initial_ped = initial_counts.get(1, 0)
+    initial_cyc = initial_counts.get(2, 0)
+    initial_car = initial_counts.get(3, 0)
+
     # Parcours par frame
     for t in df[COL_TIME].unique():
         frame = df[df[COL_TIME] == t]
@@ -144,22 +148,62 @@ def filter_spatial_car_influence(df, distance_threshold):
     # COMPTAGE
     final_counts = df_filtered.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
-    removed_counts = {
-        1: initial_counts.get(1, 0) - final_counts.get(1, 0),
-        2: initial_counts.get(2, 0) - final_counts.get(2, 0),
-        3: initial_counts.get(3, 0) - final_counts.get(3, 0),
-    }
+    final_ids = set(df_filtered[COL_ID].unique())
+    final_nb_traj = len(final_ids)
 
-    print("\n FILTRAGE SPATIAL")
-    print(f"Seuil distance : {distance_threshold} m")
-    print(f"Piétons supprimés   : {removed_counts[1]}")
-    print(f"Cyclistes supprimés : {removed_counts[2]}")
-    print(f"Voitures supprimées : {removed_counts[3]}")
+    final_ped = final_counts.get(1, 0)
+    final_cyc = final_counts.get(2, 0)
+    final_car = final_counts.get(3, 0)
+
+    final_interactions = compute_ped_cyc_interactions(df_filtered)
+    final_nb_interactions = len(final_interactions)
+
+    print("\nAnalyse et impact du filtre")
+    initial_nb_traj, initial_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+    removed_traj = initial_nb_traj - final_nb_traj
+    removed_inter = initial_nb_interactions - final_nb_interactions
+
+    removed_ped = initial_ped - final_ped
+    removed_cyc = initial_cyc - final_cyc
+    removed_car = initial_car - final_car
+
+    print(f"Trajectoires supprimées : {removed_traj} sur {initial_nb_traj} "
+          f"({removed_traj / initial_nb_traj * 100:.2f}%)")
+    print(f"Trajectoires restantes : {final_nb_traj}")
+
+    if initial_nb_interactions > 0:
+            print(f"Interactions piéton-cycliste supprimées : {removed_inter} sur {initial_nb_interactions} "
+                f"({removed_inter / initial_nb_interactions * 100:.2f}%)")
+    else:
+        print("Aucune interaction initiale.")
+    print(f"Interactions piéton-cycliste restantes : {final_nb_interactions}")
+
+    print(f"Piétons supprimés   : {removed_ped} sur {initial_ped} "
+          f"({(removed_ped / initial_ped * 100 if initial_ped else 0):.2f}%)")
+
+    print(f"Cyclistes supprimés : {removed_cyc} sur {initial_cyc} "
+          f"({(removed_cyc / initial_cyc * 100 if initial_cyc else 0):.2f}%)")
+
+    print(f"Voitures supprimées : {removed_car} sur {initial_car} "
+          f"({(removed_car / initial_car * 100 if initial_car else 0):.2f}%)")
+
+    # removed_counts = {
+    #     1: initial_counts.get(1, 0) - final_counts.get(1, 0),
+    #     2: initial_counts.get(2, 0) - final_counts.get(2, 0),
+    #     3: initial_counts.get(3, 0) - final_counts.get(3, 0),
+    # }
+
+    # print("\n FILTRAGE SPATIAL")
+    # print(f"Seuil distance : {distance_threshold} m")
+    # print(f"Piétons supprimés   : {removed_counts[1]}")
+    # print(f"Cyclistes supprimés : {removed_counts[2]}")
+    # print(f"Voitures supprimées : {removed_counts[3]}")
 
     return df_filtered
 
 
 def filter_coexisting_with_cars(df):
+    # supprime les trajectoires des piétons et cyclistes dès qu'ils sont sur la même frame qu'une voiture
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
     initial_ped = initial_counts.get(1, 0)
@@ -175,10 +219,19 @@ def filter_coexisting_with_cars(df):
     # récupérer tous les agents présents dans ces frames (y compris voitures)
     for t in car_frames:
         frame = df[df[COL_TIME] == t]
-        ids = frame[COL_ID].unique()
+        # ids = frame[COL_ID].unique()
 
-        for i in ids:
-            bad_ids.add(i)
+        # for i in ids:
+        #     bad_ids.add(i)
+
+        has_ped = (frame[COL_CLASS] == 1).any()
+        has_cyc = (frame[COL_CLASS] == 2).any()
+
+        if has_ped and has_cyc:
+            ids = frame[COL_ID].unique() # y compris véhicules
+            bad_ids.update(ids)
+
+
 
     # filtrage
     df_filtered = df[~df[COL_ID].isin(bad_ids)].copy()
