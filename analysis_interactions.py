@@ -18,11 +18,11 @@ def compute_speed(g, fps):
     if len(np.unique(times)) > 1:
         dt = np.diff(times)
     else:
-        dt = np.ones_like(dx) / fps
+        dt = np.ones_like(dx) / fps # à revoir pour éviter les incohérences (dt = 1/fps en s)
 
     dt[dt == 0] = 1e-6 # pour éviter division par zéro
 
-    speeds = np.hypot(dx, dy) / dt
+    speeds = np.hypot(dx, dy) / dt # switch à dist euclidienne au cas où
 
     return times[1:], speeds
 

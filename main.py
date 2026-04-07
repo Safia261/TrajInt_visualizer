@@ -172,7 +172,8 @@ def main():
     if args.dataset == "stanford2":
         df, image_path, cfg = load_dataset(args.dataset, None, args)
         df = prepare_data(df, no_cars=args.no_cars)
-        # _, _ = analyze_initial_nb_traj_interactions(df)
+        _, _ = analyze_initial_nb_traj_interactions(df)
+        # df, _ = filter_coexisting_with_cars(df)
         run_visualization(df, image_path, cfg, args)
         return
 
