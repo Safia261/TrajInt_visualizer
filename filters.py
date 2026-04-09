@@ -94,7 +94,7 @@ def analyze_car_vru_distances(df):
 
 
 
-def filter_spatial_car_influence(df, distance_threshold):
+def filter_spatial_car_influence(df, distance_threshold, ind = False):
     """
     Supprime des datasets les agents (piétons/cyclistes) qui passent trop près d'une voiture (cercle autour avec un rayon donné).
     Supprime aussi les voitures influentes à la fin.
@@ -117,13 +117,43 @@ def filter_spatial_car_influence(df, distance_threshold):
     initial_cyc = initial_counts.get(2, 0)
     initial_car = initial_counts.get(3, 0)
 
+    if ind:
+        car_speeds = {}
+
+        for car_id, g in df[df[COL_CLASS] == 3].groupby(COL_ID):
+            # vitesse moyenne sur la trajectoire pour prendre plusieurs frames en compte et ignorer les arrêts spontanés (feu rouge, etc)
+            if "xVelocity" in g.columns and "yVelocity" in g.columns:
+                speeds = np.hypot(g["xVelocity"], g["yVelocity"])
+                mean_speed = speeds.mean()
+            else:
+                mean_speed = 0
+
+            car_speeds[car_id] = mean_speed
+
+        active_cars = {cid for cid, s in car_speeds.items() if s > 0.1}
+    
+
+    interactions = compute_ped_cyc_interactions(df) # permet de s'assurer qu'il y eu au moins 1 interaction entre l'un des cyclistes présents dans les frame, et l'un des piétons
+    # auparavant, sans cette partie du code, on ne vérifiait pas cela, on vérifait juste qu'au moins un cycliste et au moins 1 piéton étaient présents en même temps qu'une voiture
+    interaction_ids = set()
+    for ped_id, cyc_id in interactions:
+        interaction_ids.add(ped_id)
+        interaction_ids.add(cyc_id)
+
     # Parcours par frame
     for t in df[COL_TIME].unique():
         frame = df[df[COL_TIME] == t]
 
-        cars = frame[frame[COL_CLASS] == 3]
-        pedestrians = frame[frame[COL_CLASS] == 1]
-        cyclists = frame[frame[COL_CLASS] == 2]
+        if ind:
+            cars = frame[(frame[COL_CLASS] == 3) & (frame[COL_ID].isin(active_cars))]
+        else:
+            cars = frame[frame[COL_CLASS] == 3]
+        # pedestrians = frame[frame[COL_CLASS] == 1]
+        # cyclists = frame[frame[COL_CLASS] == 2]
+
+        pedestrians = frame[(frame[COL_CLASS] == 1) & (frame[COL_ID].isin(interaction_ids))]
+
+        cyclists = frame[(frame[COL_CLASS] == 2) & (frame[COL_ID].isin(interaction_ids))]
 
         if len(cars) == 0 or len(pedestrians) == 0 or len(cyclists)==0:
             # on applique le filtre que si voiture + au moins 1 piéton + au moins 1 cyclist présents dans la même frame
@@ -131,17 +161,41 @@ def filter_spatial_car_influence(df, distance_threshold):
 
         vrus = frame[frame[COL_CLASS].isin([1, 2])]
 
-        # Comparaison distance voiture - VRU
-        for _, vru in vrus.iterrows():
-            for _, car in cars.iterrows():
-                dx = vru["x_m"] - car["x_m"]
-                dy = vru["y_m"] - car["y_m"]
-                dist = np.hypot(dx, dy) # hypothénuse triange = dist euclidienne en 2D
+        # ===== 4. Vérifier distance voiture - VRU =====
+        for _, ped in pedestrians.iterrows():
+            for _, cyc in cyclists.iterrows():
 
-                if dist < distance_threshold:
-                    bad_vru_ids.add(vru[COL_ID])
-                    bad_car_ids.add(car[COL_ID])
-                    break
+                # vérifier que cette paire est bien une interaction
+                if tuple(sorted((ped[COL_ID], cyc[COL_ID]))) not in interactions:
+                    continue
+
+                for _, car in cars.iterrows():
+                    dx_p = ped["x_m"] - car["x_m"]
+                    dy_p = ped["y_m"] - car["y_m"]
+                    dist_p = np.hypot(dx_p, dy_p)
+
+                    dx_c = cyc["x_m"] - car["x_m"]
+                    dy_c = cyc["y_m"] - car["y_m"]
+                    dist_c = np.hypot(dx_c, dy_c)
+
+                    # condition : au moins un des deux proche de la voiture
+                    if dist_p < distance_threshold or dist_c < distance_threshold:
+                        bad_vru_ids.add(ped[COL_ID])
+                        bad_vru_ids.add(cyc[COL_ID])
+                        bad_car_ids.add(car[COL_ID])
+                        break
+
+        # Comparaison distance voiture - VRU
+        # for _, vru in vrus.iterrows():
+        #     for _, car in cars.iterrows():
+        #         dx = vru["x_m"] - car["x_m"]
+        #         dy = vru["y_m"] - car["y_m"]
+        #         dist = np.hypot(dx, dy) # hypothénuse triange = dist euclidienne en 2D
+
+        #         if dist < distance_threshold:
+        #             bad_vru_ids.add(vru[COL_ID])
+        #             bad_car_ids.add(car[COL_ID])
+        #             break
     
     
     # FILTRAGE
@@ -189,19 +243,76 @@ def filter_spatial_car_influence(df, distance_threshold):
     print(f"Voitures supprimées : {removed_car} sur {initial_car} "
           f"({(removed_car / initial_car * 100 if initial_car else 0):.2f}%)")
 
-    # removed_counts = {
-    #     1: initial_counts.get(1, 0) - final_counts.get(1, 0),
-    #     2: initial_counts.get(2, 0) - final_counts.get(2, 0),
-    #     3: initial_counts.get(3, 0) - final_counts.get(3, 0),
-    # }
+    return df_filtered, bad_vru_ids.union(bad_car_ids)
 
-    # print("\n FILTRAGE SPATIAL")
-    # print(f"Seuil distance : {distance_threshold} m")
-    # print(f"Piétons supprimés   : {removed_counts[1]}")
-    # print(f"Cyclistes supprimés : {removed_counts[2]}")
-    # print(f"Voitures supprimées : {removed_counts[3]}")
 
-    return df_filtered
+
+def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
+    results = classify_interactions_with_car_in_time_and_space(df, distance_threshold, ind)
+
+    bad_vru_ids = set()
+    bad_car_ids = set()
+
+    initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
+    initial_ped = initial_counts.get(1, 0)
+    initial_cyc = initial_counts.get(2, 0)
+    initial_car = initial_counts.get(3, 0)
+
+    for (ped_id, cyc_id), info in results.items():
+        if info["label"] == "PENDANT_PROCHE":
+            bad_vru_ids.update([ped_id, cyc_id])
+            bad_car_ids.update(info["cars"])
+
+    bad_ids = bad_vru_ids.union(bad_car_ids)
+    df_filtered = df[~df[COL_ID].isin(bad_ids)].copy()
+
+    # print("\nFiltrage basé sur interaction + voiture proche")
+    # print(f"IDs supprimés : {len(bad_ids)}")
+
+    final_counts = df_filtered.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
+
+    final_ids = set(df_filtered[COL_ID].unique())
+    final_nb_traj = len(final_ids)
+
+    final_ped = final_counts.get(1, 0)
+    final_cyc = final_counts.get(2, 0)
+    final_car = final_counts.get(3, 0)
+
+    final_interactions = compute_ped_cyc_interactions(df_filtered)
+    print(f"\nInteractions finales: {final_interactions}")
+    final_nb_interactions = len(final_interactions)
+
+    print("\nAnalyse et impact du filtre")
+    initial_nb_traj, initial_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+    removed_traj = initial_nb_traj - final_nb_traj
+    removed_inter = initial_nb_interactions - final_nb_interactions
+
+    removed_ped = initial_ped - final_ped
+    removed_cyc = initial_cyc - final_cyc
+    removed_car = initial_car - final_car
+
+    print(f"Trajectoires supprimées : {removed_traj} sur {initial_nb_traj} "
+          f"({removed_traj / initial_nb_traj * 100:.2f}%)")
+    print(f"Trajectoires restantes : {final_nb_traj}")
+
+    if initial_nb_interactions > 0:
+            print(f"Interactions piéton-cycliste supprimées : {removed_inter} sur {initial_nb_interactions} "
+                f"({removed_inter / initial_nb_interactions * 100:.2f}%)")
+    else:
+        print("Aucune interaction initiale.")
+    print(f"Interactions piéton-cycliste restantes : {final_nb_interactions}")
+
+    print(f"Piétons supprimés   : {removed_ped} sur {initial_ped} "
+          f"({(removed_ped / initial_ped * 100 if initial_ped else 0):.2f}%)")
+
+    print(f"Cyclistes supprimés : {removed_cyc} sur {initial_cyc} "
+          f"({(removed_cyc / initial_cyc * 100 if initial_cyc else 0):.2f}%)")
+
+    print(f"Voitures supprimées : {removed_car} sur {initial_car} "
+          f"({(removed_car / initial_car * 100 if initial_car else 0):.2f}%)")
+
+    return df_filtered, bad_ids
+
 
 
 def filter_coexisting_with_cars(df):
@@ -323,10 +434,10 @@ def apply_kalman_filter(df, R_value=0.5):
 def kalman_filter_2d(xs, ys, R_value=0.5):
     n = len(xs)
 
-    # État : [x, y, vx, vy]
+    # Etat : [x, y, vx, vy]
     x = np.array([xs[0], ys[0], 0, 0], dtype=float)
 
-    # Matrice de transition (modèle vitesse constante)
+    # Matrice de transition (modèle vitesse constante, hypothèse à préciser dans le rapport!)
     dt = 1.0
     F = np.array([
         [1, 0, dt, 0],
@@ -341,7 +452,7 @@ def kalman_filter_2d(xs, ys, R_value=0.5):
         [0, 1, 0, 0]
     ])
 
-    # Bruit (à ajuster !)
+    # Bruit (à ajuster!)
     Q = np.eye(4) * 0.01   # bruit du modèle (= à quel point le mouvement peut changer | petit -> mouv rigide + traj lisse | grand -> mouv flexible + traj réactive | vaut mieux petit pour VRUs)
     # R = np.eye(2) * 0.5    # bruit de mesure (petit -> peu de lissage et bruit visible | grand -> fort lissage, trajectoire plus propre)
     R = np.eye(2) * R_value

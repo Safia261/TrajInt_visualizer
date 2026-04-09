@@ -231,3 +231,149 @@ def compute_ped_cyc_interactions(df, distance_threshold=5.0):
     # print(interactions)
 
     return interactions
+
+
+def compute_ped_cyc_interactions_with_time(df, distance_threshold=5.0):
+    interactions = {}  # (ped, cyc) -> liste de frames
+
+    for t in df[COL_TIME].unique():
+        frame = df[df[COL_TIME] == t]
+
+        pedestrians = frame[frame[COL_CLASS] == 1]
+        cyclists = frame[frame[COL_CLASS] == 2]
+
+        if len(pedestrians) == 0 or len(cyclists) == 0:
+            continue
+
+        for _, ped in pedestrians.iterrows():
+            for _, cyc in cyclists.iterrows():
+                dx = ped["x_m"] - cyc["x_m"]
+                dy = ped["y_m"] - cyc["y_m"]
+                dist = np.hypot(dx, dy)
+
+                if dist < distance_threshold:
+                    pair = tuple(sorted((ped[COL_ID], cyc[COL_ID])))
+
+                    if pair not in interactions:
+                        interactions[pair] = []
+
+                    interactions[pair].append(t)
+
+    return interactions
+
+
+def classify_interactions_with_car_in_time(df, distance_threshold=5.0):
+    """
+    Classifie les interactions piétons-cyclistes dans le temps selon l'apparition de la voiture dans un rayon de 5m autour de l'un des 2 VRU.
+    """
+    interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
+
+    car_frames = set(df[df[COL_CLASS] == 3][COL_TIME].unique())
+
+    results = {}
+
+    for pair, frames in interactions.items():
+        frames = sorted(frames)
+
+        has_during = any(f in car_frames for f in frames)
+
+        if has_during:
+            label = "PENDANT"
+        else:
+            first_frame = frames[0]
+
+            cars_before = any(f < first_frame for f in car_frames)
+            cars_after = any(f > frames[-1] for f in car_frames)
+
+            if cars_before and not cars_after:
+                label = "APRÈS voiture"
+            elif cars_after and not cars_before:
+                label = "AVANT voiture"
+            elif cars_before and cars_after:
+                label = "ENTOURÉE par voitures"
+            else:
+                label = "SANS voiture"
+
+        results[pair] = label
+
+    return results
+
+
+def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0, ind=False):
+    interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
+    print(f"\nInteractions initiales: {compute_ped_cyc_interactions(df)}")
+
+    results = {}
+
+    # ===== voitures actives (InD) =====
+    active_cars = None
+    if ind:
+        car_speeds = {}
+        for car_id, g in df[df[COL_CLASS] == 3].groupby(COL_ID):
+            if "xVelocity" in g.columns and "yVelocity" in g.columns:
+                speeds = np.hypot(g["xVelocity"], g["yVelocity"])
+                mean_speed = speeds.mean()
+            else:
+                mean_speed = 0
+            car_speeds[car_id] = mean_speed
+
+        active_cars = {cid for cid, s in car_speeds.items() if s > 0.1}
+
+    # ===== analyse =====
+    for (ped_id, cyc_id), frames in interactions.items():
+        frames = sorted(frames)
+
+        influencing_cars = set()
+        has_during_close = False
+
+        for t in frames:
+            frame = df[df[COL_TIME] == t]
+
+            ped = frame[frame[COL_ID] == ped_id]
+            cyc = frame[frame[COL_ID] == cyc_id]
+
+            if ped.empty or cyc.empty:
+                continue
+
+            ped = ped.iloc[0]
+            cyc = cyc.iloc[0]
+
+            if ind:
+                cars = frame[(frame[COL_CLASS] == 3) & (frame[COL_ID].isin(active_cars))]
+            else:
+                cars = frame[frame[COL_CLASS] == 3]
+
+            for _, car in cars.iterrows():
+                dist_p = np.hypot(ped["x_m"] - car["x_m"], ped["y_m"] - car["y_m"])
+                dist_c = np.hypot(cyc["x_m"] - car["x_m"], cyc["y_m"] - car["y_m"])
+
+                if dist_p < distance_threshold or dist_c < distance_threshold:
+                    has_during_close = True
+                    influencing_cars.add(car[COL_ID])
+                    # break
+
+            if has_during_close:
+                break
+
+        # ===== classification =====
+        if has_during_close:
+            label = "PENDANT_PROCHE"
+        else:
+            # fallback temporel simple
+            car_frames = set(df[df[COL_CLASS] == 3][COL_TIME].unique())
+
+            cars_before = any(f < frames[0] for f in car_frames)
+            cars_after = any(f > frames[-1] for f in car_frames)
+
+            if cars_before and not cars_after:
+                label = "APRÈS voiture"
+            elif cars_after and not cars_before:
+                label = "AVANT voiture"
+            elif cars_before and cars_after:
+                label = "ENTOURÉE"
+            else:
+                label = "SANS voiture"
+
+        results[(ped_id, cyc_id)] = {"label": label, "cars": influencing_cars}
+
+    return results

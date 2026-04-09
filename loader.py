@@ -300,7 +300,7 @@ def load_ind_dataset(cfg, recording_id):
 
     x_origin = df_meta_rec["xUtmOrigin"].iloc[0]
     y_origin = df_meta_rec["yUtmOrigin"].iloc[0]
-    px_to_m = df_meta_rec["orthoPxToMeter"].iloc[0]
+    px_to_m = df_meta_rec["orthoPxToMeter"].iloc[0] # utilisé pour faire df["x_m"] = (df["xCenter"] - x_origin) / px_to_m, mais le calcul des interactions ensuite est faussé (=0)
 
     # ===== LOAD =====
     df_tracks = pd.read_csv(tracks_file)
@@ -324,9 +324,10 @@ def load_ind_dataset(cfg, recording_id):
 
     # ===== POSITION =====
     # df["x_m"] = df["xCenter"]
-    # df["y_m"] = df["yCenter"]
-    df["x_m"] = df["xCenter"] - x_origin
-    df["y_m"] = df["yCenter"] - y_origin
+    # df["y_m"] = -df["yCenter"]
+    df["x_m"] = (df["xCenter"] - x_origin)
+    df["y_m"] = -(df["yCenter"] - y_origin)
+
 
     # df["__file__"] = filename
     df["__file__"] = recording_id

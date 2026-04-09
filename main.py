@@ -5,6 +5,7 @@ from config import DATASETS
 from loader import *
 from visualisation import *
 from filters import *
+from export_data import *
 
 
 def parse_args():
@@ -205,10 +206,15 @@ def main():
             # print("\nFiltred data")
             # analyze_speeds(df, cfg)
 
-        if cfg.get("has_cars", False) and args.dataset.startswith("noname"):
+        if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)
-            # df = filter_spatial_car_influence(df, distance_threshold=5.0)
-            df, _ = filter_coexisting_with_cars(df)
+            if args.dataset == "ind":
+                # df, bad_ids = filter_spatial_car_influence(df, distance_threshold=5.0, ind = True)
+                df, bad_ids = filter_interactions_with_close_cars(df, ind = True)
+                print(bad_ids)
+                # export_filtered_ind_recording(args.file, bad_ids, cfg)
+            elif args.dataset == "noname":
+                df, _ = filter_coexisting_with_cars(df)
 
         run_visualization(df, image_path, cfg, args)
 
