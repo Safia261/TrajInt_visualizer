@@ -181,6 +181,8 @@ CLASS_COLORS = {
     7: "tab:yellow"
 }
 
+VEHICLE_CLASSES = {3, 4, 5, 6, 7}
+
 # Affichage statique
 STATIC_LINEWIDTH = 1.8
 STATIC_ALPHA = 0.85
