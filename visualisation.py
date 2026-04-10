@@ -16,7 +16,7 @@ def load_background_image(image_path, cfg):
         meters_per_pixel = 1.0 / cfg["pixels_per_meter"]
 
     elif cfg["scale"] == "meter":
-        if "meter_to_pixels" in cfg:
+        if "meters_to_pixels" in cfg:
             meters_per_pixel = 1.0 / cfg["meters_to_pixels"]
         else:
             meters_per_pixel = 1.0 # coordonnées déjà en mètres
