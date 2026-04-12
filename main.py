@@ -158,12 +158,6 @@ def main():
     cfg = DATASETS[args.dataset]
     folder = cfg["folder"]
 
-    # if cfg["type"] == "vru":
-    #     df, image_path, cfg = load_dataset(args.dataset, None)
-    #     df = prepare_data(df, no_cars=args.no_cars)
-    #     run_visualization(df, image_path, cfg, args)
-    #     return
-
     if cfg["type"] == "vru":
         df, image_path, cfg = load_dataset(args.dataset, None, args)
         df = prepare_data(df, no_cars=args.no_cars)
@@ -189,7 +183,6 @@ def main():
             file_path = os.path.join(folder, args.file)
             df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
 
-        # file_path = os.path.join(folder, args.file)
 
         # df, image_path, cfg = load_dataset(args.dataset, file_path)
         df = prepare_data(df, no_cars=args.no_cars)
@@ -201,17 +194,23 @@ def main():
             # compare_kalman_R(df, R_values, agent_id=2)
             # compare_kalman_R_two_agents(df, R_values)
             # print("\nRaw data")
-            # analyze_speeds(df, cfg)
+            analyze_speeds(df, cfg)
+            print("\navant filtre")
+            # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
+            print("\naprès filtre")
+            # distances = analyze_cycl_ped_distances(df)
             # print("\nFiltred data")
-            # analyze_speeds(df, cfg)
+            analyze_speeds(df, cfg)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)
             if args.dataset == "ind":
                 # df, bad_ids = filter_spatial_car_influence(df, distance_threshold=5.0, ind = True)
                 df, bad_ids = filter_interactions_with_close_cars(df, ind = True)
-                print(bad_ids)
+                # print(bad_ids)
+                analyze_speeds(df, cfg)
+                # distances = analyze_car_vru_distances(df)
                 # export_filtered_ind_recording(args.file, bad_ids, cfg)
             elif args.dataset == "noname":
                 df, _ = filter_coexisting_with_cars(df)

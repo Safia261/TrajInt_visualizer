@@ -2,6 +2,153 @@ import numpy as np
 import matplotlib.pyplot as plt
 from config import *
 
+
+def analyze_initial_nb_traj_interactions(df, verbose=True):
+
+    # Comptage par classe
+    initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
+
+    initial_ped = initial_counts.get(1, 0)
+    initial_cyc = initial_counts.get(2, 0)
+    # initial_car = initial_counts.get(3, 0)
+    initial_vehicle = sum(initial_counts.get(c, 0) for c in VEHICLE_CLASSES)
+
+    initial_ids = set(df[COL_ID].unique())
+    initial_nb_traj = len(initial_ids)
+
+    initial_interactions = compute_ped_cyc_interactions(df)
+    initial_nb_interactions = len(initial_interactions)
+
+    if verbose:
+        print("\nAnalyse avant filtrage")
+        print(f"Nb piétons au total : {initial_ped}")
+        print(f"Nb cyclistes au total : {initial_cyc}")
+        print(f"Nb autres usagers au total : {initial_vehicle}")
+        print(f"Trajectoires totales : {initial_nb_traj}")
+        print(f"Interactions piéton-cycliste (rayon 5m): {initial_nb_interactions}")
+
+    return initial_nb_traj, initial_nb_interactions
+
+
+
+def analyze_cycl_ped_distances(df):
+    """
+    Fonction pour analyser les distances entre piétons et cyclistes.
+    """
+    distances = []
+
+    for t in df[COL_TIME].unique():
+        frame = df[df[COL_TIME] == t]
+
+        peds = frame[frame[COL_CLASS] == 1]
+        cycls = frame[frame[COL_CLASS] == 2]
+
+        if len(peds) == 0 or len(cycls) == 0:
+            continue
+
+        for _, ped in peds.iterrows():
+            for _, cycl in cycls.iterrows():
+                dx = ped["x_m"] - cycl["x_m"]
+                dy = ped["y_m"] - cycl["y_m"]
+                dist = np.hypot(dx, dy)
+
+                distances.append(dist)
+
+    if len(distances) == 0:
+        print("Aucune distance calculée (pas de co-présence piéton/cycliste).")
+        return
+
+    distances = np.array(distances)
+    mean_val = distances.mean()
+
+    # Percentile
+    percentiles = [5, 10, 25, 50, 75, 90, 95]
+
+    print("\nANALYSE DISTANCES PIETON-CYCLISTE")
+    print(f"Nombre de distances : {len(distances)}")
+    print(f"Distance min        : {distances.min():.2f} m")
+    print(f"Distance max        : {distances.max():.2f} m")
+    print(f"Distance moyenne    : {mean_val:.2f} m")
+
+    plt.figure(figsize=(10, 6))
+    plt.hist(distances, bins=50)
+    plt.axvline(mean_val, color="red", linestyle="--", linewidth=2, label=f"Mean: {mean_val:.2f} m")
+
+    for p in percentiles:
+        val = np.percentile(distances, p)
+        print(f"Percentile {p:>2}%     : {val:.2f} m")
+        plt.axvline(val, color="black", linestyle=":", linewidth=1.8, label=f"P{p}: {val:.2f} m")
+
+    plt.xlabel("Distance voiture - VRU (m)")
+    plt.ylabel("Fréquence")
+    plt.title("Distribution des distances voiture - VRU")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return distances
+
+
+
+def analyze_car_vru_distances(df):
+    """
+    Fonction pour analyser les distances entre usagers, et déterminer le seuil de distance qui définit 
+    une potentielle influence de la part d'une voiture sur les trajectoires des VRUs.
+    """
+    distances = []
+
+    for t in df[COL_TIME].unique():
+        frame = df[df[COL_TIME] == t]
+
+        cars = frame[frame[COL_CLASS] == 3]
+        vrus = frame[frame[COL_CLASS].isin([1, 2])]
+
+        if len(cars) == 0 or len(vrus) == 0:
+            continue
+
+        for _, vru in vrus.iterrows():
+            for _, car in cars.iterrows():
+                dx = vru["x_m"] - car["x_m"]
+                dy = vru["y_m"] - car["y_m"]
+                dist = np.hypot(dx, dy)
+
+                distances.append(dist)
+
+    if len(distances) == 0:
+        print("Aucune distance calculée (pas de co-présence voiture/VRU).")
+        return
+
+    distances = np.array(distances)
+    mean_val = distances.mean()
+
+    # Percentiles (peuvent être intéressants pour voir le pourcentage des distances des interactions les plus proches et pour choisir seuil)
+    percentiles = [5, 10, 25, 50, 75, 90, 95]
+
+    print("\nANALYSE DISTANCES VOITURE - VRU")
+    print(f"Nombre de distances : {len(distances)}")
+    print(f"Distance min        : {distances.min():.2f} m")
+    print(f"Distance max        : {distances.max():.2f} m")
+    print(f"Distance moyenne    : {mean_val:.2f} m")
+
+    plt.figure(figsize=(10, 6))
+    plt.hist(distances, bins=50)
+    plt.axvline(mean_val, color="red", linestyle="--", linewidth=2, label=f"Mean: {mean_val:.2f} m")
+
+    for p in percentiles:
+        val = np.percentile(distances, p)
+        print(f"Percentile {p:>2}%     : {val:.2f} m")
+        plt.axvline(val, color="black", linestyle=":", linewidth=1.8, label=f"P{p}: {val:.2f} m")
+
+    plt.xlabel("Distance voiture - VRU (m)")
+    plt.ylabel("Fréquence")
+    plt.title("Distribution des distances voiture - VRU")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return distances
+
+
 def compute_speed(g, fps):
     g = g.sort_values(COL_TIME)
 
@@ -15,16 +162,23 @@ def compute_speed(g, fps):
     dx = np.diff(xs)
     dy = np.diff(ys)
 
-    if len(np.unique(times)) > 1:
-        dt = np.diff(times)
+    # à voir si je mets pas simplement que la logne suivante
+    # dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
+
+    if len(np.unique(times)) > 1: # si y a au moins 2 timestamps différents
+        dt = np.diff(times) / fps
     else:
-        dt = np.ones_like(dx) / fps # à revoir pour éviter les incohérences (dt = 1/fps en s)
+        dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
 
-    dt[dt == 0] = 1e-6 # pour éviter division par zéro
+    # dt[dt == 0] = 1e-6 # pour éviter division par zéro
+    dt[dt <= 0] = 1 / fps # pour éviter division par zéro
 
-    speeds = np.hypot(dx, dy) / dt # switch à dist euclidienne au cas où
+    speeds = np.hypot(dx, dy) / dt # exactement équivalent à dist euclidienne
 
-    return times[1:], speeds
+    # conversion km/h
+    speeds_kmh = speeds * 3.6
+
+    return times[1:], speeds, speeds_kmh
 
 
 def find_closest_ped_cyc(df):
@@ -110,7 +264,7 @@ def analyze_speeds(
     for aid, cls in selected_agents:
         g = df[df[COL_ID] == aid]
 
-        times, speeds = compute_speed(g, cfg)
+        times, speeds_ms, speeds_kmh = compute_speed(g, fps)
 
         if times is None:
             continue
@@ -119,7 +273,8 @@ def analyze_speeds(
             "id": aid,
             "class": cls,
             "times": times,
-            "speeds": speeds
+            "speeds_ms": speeds_ms,
+            "speeds_kmh": speeds_kmh
         })
 
     if len(data) == 0:
@@ -129,19 +284,20 @@ def analyze_speeds(
     # ===============================
     # 3. FIGURE
     # ===============================
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
     ax_hist = axes[0]
     ax_curve = axes[1]
+    ax_curve_kmh = axes[2]
 
     # ===============================
-    # 4. HISTOGRAMMES PAR CLASSE
+    # 4. HISTOGRAMMES PAR CLASSE (km/h)
     # ===============================
     speeds_by_class = {}
 
     for d in data:
         cls = d["class"]
-        speeds_by_class.setdefault(cls, []).extend(d["speeds"])
+        speeds_by_class.setdefault(cls, []).extend(d["speeds_kmh"])
 
     for cls, speeds in speeds_by_class.items():
         speeds = np.array(speeds)
@@ -158,25 +314,25 @@ def analyze_speeds(
         )
 
         print(f"\n=== {label} ===")
-        print(f"Nb mesures : {len(speeds)}")
-        print(f"Min : {speeds.min():.2f} m/s")
-        print(f"Max : {speeds.max():.2f} m/s")
-        print(f"Moy : {speeds.mean():.2f} m/s")
+        print(f"Nb mesures : {len(speeds_kmh)}")
+        print(f"Min : {speeds.min():.2f} km/h")
+        print(f"Max : {speeds.max():.2f} km/h")
+        print(f"Moy : {speeds.mean():.2f} km/h")
 
     ax_hist.set_title("Distribution des vitesses")
-    ax_hist.set_xlabel("Vitesse (m/s)")
+    ax_hist.set_xlabel("Vitesse (km/h)")
     ax_hist.set_ylabel("Fréquence")
     ax_hist.legend()
     ax_hist.grid()
 
     # ===============================
-    # 5. COURBES INDIVIDUELLES
+    # 5. COURBES INDIVIDUELLES (m/s)
     # ===============================
     for d in data:
         aid = d["id"]
         cls = d["class"]
         times = d["times"]
-        speeds = d["speeds"]
+        speeds = d["speeds_ms"]
 
         color = CLASS_COLORS.get(cls, "black")
         # linestyle = "-" if cls == 1 else "--"
@@ -198,6 +354,32 @@ def analyze_speeds(
     ax_curve.set_ylabel("Vitesse (m/s)")
     ax_curve.legend()
     ax_curve.grid()
+
+    # ===============================
+    # 5. COURBES INDIVIDUELLES (km/h)
+    # ===============================
+    for d in data:
+        aid = d["id"]
+        cls = d["class"]
+        times = d["times"]
+        speeds_kmh = d["speeds_kmh"]
+
+        color = CLASS_COLORS.get(cls, "black")
+        label = f"{CLASS_NAMES.get(cls)} ID={aid}"
+
+        ax_curve_kmh.plot(
+            times,
+            speeds_kmh,
+            label=label,
+            color=color,
+            linewidth=2
+        )
+
+    ax_curve_kmh.set_title("Évolution des vitesses")
+    ax_curve_kmh.set_xlabel("Temps")
+    ax_curve_kmh.set_ylabel("Vitesse (km/h)")
+    ax_curve_kmh.legend()
+    ax_curve_kmh.grid()
 
     plt.tight_layout()
     plt.show()
