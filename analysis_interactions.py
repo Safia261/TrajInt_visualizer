@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from config import *
+from utils import *
 
 
 def analyze_initial_nb_traj_interactions(df, verbose=True):
@@ -149,73 +150,12 @@ def analyze_car_vru_distances(df):
     return distances
 
 
-def compute_speed(g, fps):
-    g = g.sort_values(COL_TIME)
-
-    xs = g["x_m"].values
-    ys = g["y_m"].values
-    times = g[COL_TIME].values
-
-    if len(xs) < 2:
-        return None, None
-
-    dx = np.diff(xs)
-    dy = np.diff(ys)
-
-    # à voir si je mets pas simplement que la logne suivante
-    # dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
-
-    if len(np.unique(times)) > 1: # si y a au moins 2 timestamps différents
-        dt = np.diff(times) / fps
-    else:
-        dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
-
-    # dt[dt == 0] = 1e-6 # pour éviter division par zéro
-    dt[dt <= 0] = 1 / fps # pour éviter division par zéro
-
-    speeds = np.hypot(dx, dy) / dt # exactement équivalent à dist euclidienne
-
-    # conversion km/h
-    speeds_kmh = speeds * 3.6
-
-    return times[1:], speeds, speeds_kmh
-
-
-def find_closest_ped_cyc(df):
-    min_dist = float("inf")
-    best_pair = (None, None)
-
-    for t in df[COL_TIME].unique():
-        frame = df[df[COL_TIME] == t]
-
-        peds = frame[frame[COL_CLASS] == 1]
-        cycs = frame[frame[COL_CLASS] == 2]
-
-        if len(peds) == 0 or len(cycs) == 0:
-            continue
-
-        for _, ped in peds.iterrows():
-            for _, cyc in cycs.iterrows():
-                dx = ped["x_m"] - cyc["x_m"]
-                dy = ped["y_m"] - cyc["y_m"]
-                dist = np.hypot(dx, dy)
-
-                if dist < min_dist:
-                    min_dist = dist
-                    best_pair = (ped[COL_ID], cyc[COL_ID])
-
-    return best_pair
-
-
 def analyze_speeds(
     df,
     cfg,
     agent_ids=None,
     classes=None
 ):
-    import matplotlib.pyplot as plt
-    import numpy as np
-
     fps = cfg.get("fps", 1.0)
 
     # ===============================

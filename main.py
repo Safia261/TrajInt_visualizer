@@ -6,6 +6,7 @@ from loader import *
 from visualisation import *
 from filters import *
 from export_data import *
+from utils import *
 
 
 def parse_args():
@@ -194,14 +195,20 @@ def main():
             # compare_kalman_R(df, R_values, agent_id=2)
             # compare_kalman_R_two_agents(df, R_values)
             # print("\nRaw data")
-            analyze_speeds(df, cfg)
-            print("\navant filtre")
+            # analyze_speeds(df, cfg)
+            # print("\navant filtre")
             # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
-            print("\naprès filtre")
+            # print("\naprès filtre")
             # distances = analyze_cycl_ped_distances(df)
             # print("\nFiltred data")
-            analyze_speeds(df, cfg)
+            # analyze_speeds(df, cfg)
+            # ped = df[df[COL_ID] == 0]
+            # cyc = df[df[COL_ID] == 1]
+
+            # times, vrel, vrel_kmh, angles = compute_relative_motion(ped, cyc, cfg["fps"], plot=True)
+            # plot_velocity_vectors_over_time(df, 1, cfg["fps"], step=20)
+            compute_agent_direction(df, 1, "angle", "deg", plot = True)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)
