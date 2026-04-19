@@ -208,7 +208,22 @@ def main():
 
             # times, vrel, vrel_kmh, angles = compute_relative_motion(ped, cyc, cfg["fps"], plot=True)
             # plot_velocity_vectors_over_time(df, 1, cfg["fps"], step=20)
-            compute_agent_direction(df, 1, "angle", "deg", plot = True)
+            # compute_agent_direction(df, 1, "angle", "deg", plot = True)
+
+            g = df[df[COL_ID] == 1].sort_values(COL_TIME)
+            compute_velocity_vectors(g, cfg["fps"], plot=True)
+            t, a, c_da = compute_direction_angle_velocity_based(df, 0, 1, cfg["fps"], plot=True, return_class=True)
+            print("\nDirection angle : ", c_da)
+            t, a, c_aa = compute_approach_angle(df, 0, 1, cfg["fps"], plot=True, return_class=True)
+            print("\nApproach angle : ", c_aa)
+            times, rel_speeds, rel_speeds_kmh, angles, distances, c_v = compute_relative_speed(df, 0, 1, cfg["fps"], plot=True, return_class=True)
+            print("\nRelative speed : ", c_v)
+            pet = compute_pet(df, 0, 1, cfg["fps"], plot=True, return_class=True)
+            print("\nPET : ", pet)
+            times, ttc_val, ttc_min, c_ttc = compute_ttc(df, 0, 1, cfg["fps"], plot=True, return_class=True)
+            print("\n TTC : ", ttc_min, c_ttc)
+            res = classify_global_interaction(pet, (ttc_min, c_ttc), c_aa, c_da, c_v)
+            print("\nFinal results : ", res)
 
         if cfg.get("has_cars", False):
             # distances = analyze_car_vru_distances(df)

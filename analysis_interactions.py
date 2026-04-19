@@ -499,3 +499,342 @@ def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0,
         results[(ped_id, cyc_id)] = {"label": label, "cars": influencing_cars}
 
     return results
+
+
+def classify_direction_angle(angle):
+    if angle is None or np.isnan(angle):
+        return "None"
+
+    if angle < 30:
+        return "SAME_DIRECTION"
+    elif angle < 75:
+        return "SLIGHT_CONVERGENCE"
+    elif angle < 105:
+        return "CROSSING" # interaction perpendiculaire
+    elif angle < 150:
+        return "STRONG_CONVERGENCE"
+    else:
+        return "OPPOSITE_DIRECTION"
+    
+def classify_direction_angle_interaction(df, ped_id, cyc_id, times, angles):
+    interactions = compute_ped_cyc_interactions_with_time(df)
+    pair = tuple(sorted((ped_id, cyc_id)))
+
+    frames = interactions.get(pair, [])
+    if len(frames) == 0:
+        return {"label": "no interaction"}
+
+    intervals = frames_to_intervals(frames)
+
+    # ===== filtrage pendant interaction =====
+    mask = np.zeros_like(times, dtype=bool)
+    for start, end in intervals:
+        mask |= (times >= start) & (times <= end)
+
+    angles_inter = angles[mask]
+
+    if len(angles_inter) == 0:
+        return {"label": "UNKNOWN"}
+
+    # ===== classification point par point =====
+    angle_classes = [classify_direction_angle(a) for a in angles_inter]
+
+    # ===== compression de séquence =====
+    sequence = [angle_classes[0]]
+    for c in angle_classes[1:]:
+        if c != sequence[-1]:
+            sequence.append(c)
+
+    # priorité à la géométrie la plus critique
+    if "OPPOSITE_DIRECTION" in sequence:
+        label_main = "OPPOSITE_DIRECTION"
+    elif "STRONG_CONVERGENCE" in sequence:
+        label_main = "STRONG_CONVERGENCE"
+    elif "CROSSING" in sequence:
+        label_main = "CROSSING"
+    elif "SLIGHT_CONVERGENCE" in sequence:
+        label_main = "SLIGHT_CONVERGENCE"
+    else:
+        label_main = "SAME_DIRECTION"
+
+    return {
+        "label_main": label_main,
+        "sequence": sequence,
+        "angle_min": np.min(angles_inter),
+        "angle_median": np.median(angles_inter)
+    }
+
+
+def classify_approach_angle(angle):
+    if angle is None or np.isnan(angle):
+        return "UNKNOWN"
+
+    if angle < 30:
+        return "FRONTAL_APPROACH"
+    elif angle < 75:
+        return "OBLIQUE_APPROACH"
+    elif angle < 105:
+        return "CROSSING"
+    elif angle < 150:
+        return "OBLIQUE_DEPART"
+    else:
+        return "MOVING_AWAY"
+    
+
+def classify_approach_angle_interaction(df, ped_id, cyc_id, times, angles):
+    interactions = compute_ped_cyc_interactions_with_time(df)
+    pair = tuple(sorted((ped_id, cyc_id)))
+
+    frames = interactions.get(pair, [])
+    if len(frames) == 0:
+        return {"label": "no interaction"}
+
+    intervals = frames_to_intervals(frames)
+
+    # filtrage
+    mask = np.zeros_like(times, dtype=bool)
+    for start, end in intervals:
+        mask |= (times >= start) & (times <= end)
+
+    angles_inter = angles[mask]
+
+    if len(angles_inter) == 0:
+        return {"label": "UNKNOWN"}
+
+    # classification point par point
+    angle_classes = [classify_approach_angle(a) for a in angles_inter]
+
+    # compression
+    sequence = [angle_classes[0]]
+    for c in angle_classes[1:]:
+        if c != sequence[-1]:
+            sequence.append(c)
+    
+    # label_main = max(set(sequence), key=sequence.count)
+
+    #label principal
+    if "FRONTAL_APPROACH" in sequence:
+        label_main = "FRONTAL_APPROACH"
+    elif "OBLIQUE_APPROACH" in sequence:
+        label_main = "OBLIQUE_APPROACH"
+    elif "CROSSING" in sequence:
+        label_main = "CROSSING"
+    else:
+        label_main = sequence[0]
+
+    return {
+        "label_main": label_main,
+        "sequence": sequence,
+        "angle_min": np.min(angles_inter),
+        "angle_median": np.median(angles_inter)
+    }
+
+
+def classify_relative_speed(v_rel):
+    # pour des vitesses en km/h
+    if v_rel is None or np.isnan(v_rel):
+        return "UNKNOWN"
+
+    if v_rel < 3:
+        return "LOW"
+    elif v_rel < 15:
+        return "MODERATE"
+    elif v_rel < 20:
+        return "HIGH"
+    else:
+        return "VERY_HIGH"
+
+def classify_relative_speed_interaction(
+    df,
+    ped_id,
+    cyc_id,
+    times,
+    v_rel
+):
+    # pour des vitesses en km/h
+    interactions = compute_ped_cyc_interactions_with_time(df)
+    pair = tuple(sorted((ped_id, cyc_id)))
+
+    frames = interactions.get(pair, [])
+    if len(frames) == 0:
+        return {"label": "NO_INTERACTION"}
+
+    intervals = frames_to_intervals(frames)
+
+    # ===== filtrage =====
+    mask = np.zeros_like(times, dtype=bool)
+    for start, end in intervals:
+        mask |= (times >= start) & (times <= end)
+
+    v_inter = v_rel[mask]
+
+    # enlever NaN / inf
+    v_inter = v_inter[np.isfinite(v_inter)]
+
+    if len(v_inter) == 0:
+        return {"label": "UNKNOWN"}
+
+    
+    v_max = np.max(v_inter) # le moment le plus dangereux serait le moment où la vitesse est la plus élevée
+    v_mean = np.mean(v_inter)
+
+    label_max = classify_relative_speed(v_max)
+    labels = [classify_relative_speed(v) for v in v_inter]
+    dominant = max(set(labels), key=labels.count)
+
+    return {
+        "label_main": dominant, # selon l'occurence des labels
+        "label_max": label_max, # selon la vitesse max
+        "v_max": v_max,
+        "v_mean": v_mean,
+        "labels": labels,
+    }
+
+
+# def classify_relative_motion(dx_rel, dy_rel, dx_pos, dy_pos): # même cjose que angle d'approche
+#     """
+#     dx_rel, dy_rel : vitesse relative
+#     dx_pos, dy_pos : vecteur position (cycliste -> piéton)
+#     """
+
+#     v_rel = np.array([dx_rel, dy_rel])
+#     pos_vec = np.array([dx_pos, dy_pos])
+
+#     norm_v = np.linalg.norm(v_rel)
+#     norm_p = np.linalg.norm(pos_vec)
+
+#     if norm_v == 0 or norm_p == 0:
+#         return "STATIC"
+
+#     cos_theta = np.dot(v_rel, pos_vec) / (norm_v * norm_p)
+
+#     if cos_theta > 0.5:
+#         return "APPROACHING"
+#     elif cos_theta < -0.5:
+#         return "MOVING_AWAY"
+#     else:
+#         return "LATERAL"
+
+
+def classify_pet(pet):
+    """
+    Classification du PET (en secondes).
+    """
+
+    if pet is None:
+        return "None"
+
+    if pet < 1:
+        return "CRITICAL" # quasi-collision
+    elif pet < 2:
+        return "HIGH"
+    elif pet < 4:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
+def classify_ttc(ttc):
+    if ttc is None:
+        return "None"
+
+    if ttc < 1:
+        return "CRITICAL"
+    elif ttc < 2:
+        return "HIGH"
+    elif ttc < 4:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
+def classify_global_interaction(pet, ttc, approach_result, direction_result, speed_result):
+    """
+    Combine tous les indicateurs pour classifier une interaction.
+
+    Returns:
+        dict:
+            type
+            risk_level
+            score
+            details
+    """
+
+    approach_class = approach_result["label_main"] if approach_result else None
+    direction_class = direction_result["label_main"] if direction_result else None
+    speed_class = speed_result["label_main"] if speed_result else None
+    pet_val, pet_class = pet
+    ttc_min, ttc_class = ttc
+
+    # logique principale
+    if approach_class == "CROSSING":
+        interaction_type = "CROSSING"
+
+    elif approach_class == "FRONTAL_APPROACH": # à redéfinir, pour être plus précis, car même si approche frontale, peut l'esquiver latéralement
+        interaction_type = "FRONTAL_APPROACH" # à voir aussi si OPPOSSITE_DIRECTION ou pas par ex
+
+    elif direction_class == "SAME_DIRECTION":
+        if speed_class != "LOW":
+            interaction_type = "OVERTAKING" # dépassement
+        else:
+            interaction_type = "FOLLOWING"
+
+    # elif speed_class == "LOW":
+    #     interaction_type = "STATIC_INTERACTION"
+
+    else:
+        interaction_type = "UNDEFINED"
+
+    # =========================
+    # 2. RISQUE (PET + TTC)
+    # =========================
+
+    risk_score = 0
+
+    # --- PET ---
+    if pet_class is not None:
+        if pet_class == "CRITICAL":
+            risk_score += 3
+        elif pet_class == "HIGH":
+            risk_score += 2
+        elif pet_class == "MEDIUM":
+            risk_score += 1
+
+    # --- TTC ---
+    if ttc_class is not None:
+        if ttc_class == "CRITICAL":
+            risk_score += 3
+        elif ttc_class == "HIGH":
+            risk_score += 2
+        elif ttc_class == "MEDIUM":
+            risk_score += 1
+
+    # =========================
+    # 3. NIVEAU FINAL
+    # =========================
+
+    if risk_score >= 5:
+        risk_level = "CRITICAL"
+    elif risk_score >= 3:
+        risk_level = "HIGH"
+    elif risk_score >= 2:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    # =========================
+    # 5. OUTPUT
+    # =========================
+
+    return {
+        "type": interaction_type,
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "details": {
+            "PET": pet,
+            "TTC": ttc,
+            "approach": approach_class,
+            "direction": direction_class,
+            "speed": speed_class
+        }
+    }
