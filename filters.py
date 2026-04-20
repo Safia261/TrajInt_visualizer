@@ -167,7 +167,8 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
     initial_ped = initial_counts.get(1, 0)
     initial_cyc = initial_counts.get(2, 0)
-    initial_car = initial_counts.get(3, 0)
+    # initial_car = initial_counts.get(3, 0)
+    initial_vehicle = sum(initial_counts.get(c, 0) for c in VEHICLE_CLASSES)
 
     for (ped_id, cyc_id), info in results.items():
         if info["label"] == "PENDANT_PROCHE":
@@ -187,7 +188,8 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
 
     final_ped = final_counts.get(1, 0)
     final_cyc = final_counts.get(2, 0)
-    final_car = final_counts.get(3, 0)
+    # final_car = final_counts.get(3, 0)
+    final_car = sum(final_counts.get(c, 0) for c in VEHICLE_CLASSES)
 
     final_interactions = compute_ped_cyc_interactions(df_filtered)
     print(f"\nInteractions finales: {final_interactions}")
@@ -200,7 +202,7 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
 
     removed_ped = initial_ped - final_ped
     removed_cyc = initial_cyc - final_cyc
-    removed_car = initial_car - final_car
+    removed_car = initial_vehicle - final_car
 
     print(f"Trajectoires supprimées : {removed_traj} sur {initial_nb_traj} "
           f"({removed_traj / initial_nb_traj * 100:.2f}%)")
@@ -219,8 +221,8 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
     print(f"Cyclistes supprimés : {removed_cyc} sur {initial_cyc} "
           f"({(removed_cyc / initial_cyc * 100 if initial_cyc else 0):.2f}%)")
 
-    print(f"Voitures supprimées : {removed_car} sur {initial_car} "
-          f"({(removed_car / initial_car * 100 if initial_car else 0):.2f}%)")
+    print(f"Autres usagers supprimés : {removed_car} sur {initial_vehicle} "
+          f"({(removed_car / initial_vehicle * 100 if initial_vehicle else 0):.2f}%)")
 
     return df_filtered, bad_ids
 

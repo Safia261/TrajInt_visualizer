@@ -463,7 +463,8 @@ def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0,
             if ind:
                 cars = frame[(frame[COL_CLASS] == 3) & (frame[COL_ID].isin(active_cars))]
             else:
-                cars = frame[frame[COL_CLASS] == 3]
+                # cars = frame[frame[COL_CLASS] == 3]
+                cars = frame[(frame[COL_CLASS].isin(VEHICLE_CLASSES))]
 
             for _, car in cars.iterrows():
                 dist_p = np.hypot(ped["x_m"] - car["x_m"], ped["y_m"] - car["y_m"])
@@ -482,7 +483,8 @@ def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0,
             label = "PENDANT_PROCHE"
         else:
             # fallback temporel simple
-            car_frames = set(df[df[COL_CLASS] == 3][COL_TIME].unique())
+            # car_frames = set(df[df[COL_CLASS] == 3][COL_TIME].unique())
+            car_frames = set(df[df[COL_CLASS].isin(VEHICLE_CLASSES)][COL_TIME].unique())
 
             cars_before = any(f < frames[0] for f in car_frames)
             cars_after = any(f > frames[-1] for f in car_frames)

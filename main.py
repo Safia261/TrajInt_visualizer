@@ -170,6 +170,7 @@ def main():
         df = prepare_data(df, no_cars=args.no_cars)
         _, _ = analyze_initial_nb_traj_interactions(df)
         # df, _ = filter_coexisting_with_cars(df)
+        df, _ = filter_interactions_with_close_cars(df)
         run_visualization(df, image_path, cfg, args)
         return
 
