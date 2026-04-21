@@ -2,6 +2,55 @@ import numpy as np
 import matplotlib.pyplot as plt
 from config import *
 
+def compute_interaction_intervals(df, ped_id, cyc_id, fps, distance_threshold=5.0):
+    """
+    Retourne les intervalles de temps où un piéton et un cycliste sont en interaction.
+
+    Returns:
+        intervals : liste de tuples [(t_start, t_end), ...]
+    """
+
+    # récupérer toutes les interactions
+    from analysis_interactions import compute_ped_cyc_interactions_with_time
+    interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
+
+    # clé triée (important)
+    key = tuple(sorted((ped_id, cyc_id)))
+
+    frames = interactions.get(key, [])
+
+    if len(frames) == 0:
+        return []
+
+    frames = sorted(frames)
+
+    # conversion en intervalles
+    intervals_fps = []
+    start = frames[0]
+    prev = frames[0]
+
+    for t in frames[1:]:
+        # continuité temporelle
+        if t == prev:
+            continue
+
+        # rupture -> nouvel intervalle
+        if t > prev + 1:
+            intervals_fps.append((int(start), int(prev)))
+            start = t
+
+        prev = t
+
+    # dernier intervalle
+    intervals_fps.append((int(start), int(prev)))
+
+    intervals_sec = [(float(s/fps), float(e/fps)) for s, e in intervals_fps]
+
+    total_duration_sec = sum((e - s) for s, e in intervals_sec)
+
+    return intervals_fps, intervals_sec, total_duration_sec
+
+
 def compute_speed(g, fps):
     g = g.sort_values(COL_TIME)
 
@@ -123,6 +172,7 @@ def add_spatial_markers(ax, df, ped_id, intervals):
 def compute_agent_direction(
     df,
     agent_id,
+    fps,
     mode="vector",   # "vector" or "angle"
     angle_unit = "red", # "rad" or "deg"
     normalize=False,
@@ -197,8 +247,8 @@ def compute_agent_direction(
             # plt.xlabel("time")
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-            ax1.plot(t[1:], angles, label="angle")
-            ax1.set_xlabel("Temps")
+            ax1.plot(t[1:]/fps, angles, label="angle")
+            ax1.set_xlabel("Temps (s)")
             ax1.set_ylabel(f"Angle ({angle_unit})")  # ou degrés
             ax1.set_title(f"Direction angle ({angle_unit}) au cours du temps - ID {agent_id}")
             ax1.grid()
@@ -332,8 +382,8 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="
         intervals = frames_to_intervals(frames)
 
         plt.figure(figsize=(10, 4))
-        plt.plot(valid_times, angles)
-        plt.xlabel("Temps")
+        plt.plot(valid_times/fps, angles)
+        plt.xlabel("Temps (s)")
         plt.ylabel(f"Angle ({angle_unit})")
         plt.title(f"Angle de direction (entre vecteurs vitesses) (cycliste {cyc_id} - piéton {ped_id})")
         if angle_unit == "deg":
@@ -341,7 +391,8 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="
             plt.axhline(90, linestyle="--", color="orange", label="Perpendiculaire (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
             plt.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
         plt.grid()
-        add_time_markers(plt.gca(), intervals)
+        intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
+        add_time_markers(plt.gca(), intervals_sec)
         plt.legend()
         plt.show()
 
@@ -441,12 +492,12 @@ def compute_approach_angle(
         intervals = frames_to_intervals(frames)
 
         plt.figure(figsize=(10, 4))
-        plt.plot(valid_times, angles, label="Angle d'approche")
+        plt.plot(valid_times/fps, angles, label="Angle d'approche")
 
         # for (t_start, t_end) in intervals:
         #     plt.axvspan(t_start, t_end, color="orange", alpha=0.3)
 
-        plt.xlabel("Temps")
+        plt.xlabel("Temps (s)")
         plt.ylabel(f"Angle ({angle_unit})")
         plt.title(f"Angle d'approche (cycliste {cyc_id} - piéton {ped_id})")
         if angle_unit == "deg":
@@ -454,7 +505,8 @@ def compute_approach_angle(
             plt.axhline(90, linestyle="--", color="orange", label="Croisement (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
             plt.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
         plt.grid()
-        add_time_markers(plt.gca(), intervals)
+        intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
+        add_time_markers(plt.gca(), intervals_sec)
         plt.legend()
         plt.show()
     
@@ -544,20 +596,20 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
         ax1, ax2, ax3 = axes
 
         # --- vitesse m/s ---
-        ax1.plot(common_times, rel_speeds, label="Vitesse relative (m/s)")
+        ax1.plot(common_times/fps, rel_speeds, label="Vitesse relative (m/s)")
         ax1.set_ylabel("m/s")
         ax1.set_title("Vitesse relative")
         ax1.grid()
 
         # --- vitesse km/h ---
-        ax2.plot(common_times, rel_speeds_kmh, label="Vitesse relative (km/h)", color="orange")
+        ax2.plot(common_times/fps, rel_speeds_kmh, label="Vitesse relative (km/h)", color="orange")
         ax2.set_ylabel("km/h")
         ax2.grid()
 
         # --- angle ---
-        ax3.plot(common_times, angles, label="Angle (deg)", color="green")
+        ax3.plot(common_times/fps, angles, label="Angle (deg)", color="green")
         ax3.set_ylabel("Angle (°)")
-        ax3.set_xlabel("Temps")
+        ax3.set_xlabel("Temps (s)")
         ax3.grid()
 
         from analysis_interactions import compute_ped_cyc_interactions_with_time
@@ -574,8 +626,8 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
             t_end = max(interaction_times)
 
             for ax in axes:
-                ax.axvline(t_start, color="red", linestyle="--", label="début interaction")
-                ax.axvline(t_end, color="purple", linestyle="--", label="fin interaction")
+                ax.axvline(t_start/fps, color="red", linestyle="--", label="début interaction")
+                ax.axvline(t_end/fps, color="purple", linestyle="--", label="fin interaction")
 
         # éviter doublons de légende
         for ax in axes:
@@ -865,10 +917,10 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
         # # ligne seuil critique
         # ax_ttc.axhline(2, linestyle="--", color="red", label="Seuil critique (2s)")
 
-        ax_ttc.plot(valid_times, ttc_values, color="purple", label="TTC")
+        ax_ttc.plot(valid_times/fps, ttc_values, color="purple", label="TTC")
         ax_ttc.axhline(2, linestyle="--", color="red", label="Seuil critique (2s)")
         ax_ttc.scatter(
-            ttc_min_time,
+            ttc_min_time/fps,
             ttc_min,
             color="red",
             s=80,
@@ -885,25 +937,26 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
             bbox=dict(facecolor="white", alpha=0.8)
         )
 
-        ax_dist.plot(common_times, distances, color="blue", label="Distance")
+        ax_dist.plot(common_times/fps, distances, color="blue", label="Distance")
         ax_dist.axhline(distance_threshold, linestyle="--", color="red", label="Seuil interaction (5m)")
         ax_dist.set_ylabel("Distance (m)")
         ax_dist.set_title("Distance piéton-cycliste")
         ax_dist.grid()
         ax_dist.legend()
 
-        ax_angle.plot(common_times, angles, color="green", label="Angle")
+        ax_angle.plot(common_times/fps, angles, color="green", label="Angle")
         ax_angle.axhline(0, linestyle="--", color="black", alpha=0.5, label="Frontal (0°)")
         ax_angle.axhline(90, linestyle="--", color="orange", label="Croisement (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
         ax_angle.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
         ax_angle.set_ylabel("Angle (deg)")
-        ax_angle.set_xlabel("Temps")
+        ax_angle.set_xlabel("Temps (s)")
         ax_angle.set_title("Angle d'approche")
         ax_angle.grid()
         ax_angle.legend()
 
+        intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
         for ax in axes:
-            add_time_markers(ax, intervals)
+            add_time_markers(ax, intervals_sec)
 
         plt.tight_layout()
         # plt.legend()
@@ -914,3 +967,27 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
         return valid_times, ttc_values, ttc_min, classify_ttc(ttc_min_inter)
 
     return valid_times, ttc_values, ttc_min
+
+# def compute_ttc(p_rel, v_rel):
+#     """
+#     p_rel : vecteur position relative (p_c - p_p)
+#     v_rel : vecteur vitesse relative (v_c - v_p)
+#     """
+
+#     dot = np.dot(p_rel, v_rel)
+
+#     # ===== condition de rapprochement =====
+#     if dot >= 0:
+#         return None  # ou np.inf
+
+#     norm_v2 = np.dot(v_rel, v_rel)
+
+#     if norm_v2 < 1e-6:
+#         return None  # vitesse trop faible
+
+#     ttc = - dot / norm_v2
+
+#     if ttc < 0:
+#         return None
+
+#     return ttc

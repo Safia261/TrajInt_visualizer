@@ -504,7 +504,7 @@ def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0,
 
 
 def classify_direction_angle(angle):
-    if angle is None or np.isnan(angle):
+    if angle is None:
         return "None"
 
     if angle < 30:
@@ -568,7 +568,7 @@ def classify_direction_angle_interaction(df, ped_id, cyc_id, times, angles):
 
 
 def classify_approach_angle(angle):
-    if angle is None or np.isnan(angle):
+    if angle is None:
         return "UNKNOWN"
 
     if angle < 30:
@@ -634,7 +634,7 @@ def classify_approach_angle_interaction(df, ped_id, cyc_id, times, angles):
 
 def classify_relative_speed(v_rel):
     # pour des vitesses en km/h
-    if v_rel is None or np.isnan(v_rel):
+    if v_rel is None:
         return "UNKNOWN"
 
     if v_rel < 3:
@@ -720,7 +720,7 @@ def classify_relative_speed_interaction(
 
 def classify_pet(pet):
     """
-    Classification du PET (en secondes).
+    Classification du PET (en secondes). Permet d'évaluer le niveau de risque lors de l'interaction.
     """
 
     if pet is None:
@@ -737,6 +737,9 @@ def classify_pet(pet):
 
 
 def classify_ttc(ttc):
+    """
+    Classification du TTC (en secondes). Mesure le temps dispo pour réagir avant une potentielle collision si usagers ont la même vitesse et la même trajectoire.
+    """
     if ttc is None:
         return "None"
 
@@ -768,7 +771,6 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
     pet_val, pet_class = pet
     ttc_min, ttc_class = ttc
 
-    # logique principale
     if approach_class == "CROSSING":
         interaction_type = "CROSSING"
 
@@ -782,18 +784,14 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
             interaction_type = "FOLLOWING"
 
     # elif speed_class == "LOW":
-    #     interaction_type = "STATIC_INTERACTION"
+    #     interaction_type = "STATIC_INTERACTION" # à redéfinir, parce que c'est pas vraiment static, peut-être un suivi ou juste un ralentissement, voir un arrêt pour laisser passer
 
     else:
         interaction_type = "UNDEFINED"
 
-    # =========================
-    # 2. RISQUE (PET + TTC)
-    # =========================
 
     risk_score = 0
 
-    # --- PET ---
     if pet_class is not None:
         if pet_class == "CRITICAL":
             risk_score += 3
@@ -802,7 +800,7 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
         elif pet_class == "MEDIUM":
             risk_score += 1
 
-    # --- TTC ---
+
     if ttc_class is not None:
         if ttc_class == "CRITICAL":
             risk_score += 3
@@ -811,9 +809,6 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
         elif ttc_class == "MEDIUM":
             risk_score += 1
 
-    # =========================
-    # 3. NIVEAU FINAL
-    # =========================
 
     if risk_score >= 5:
         risk_level = "CRITICAL"
@@ -823,10 +818,6 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
         risk_level = "MEDIUM"
     else:
         risk_level = "LOW"
-
-    # =========================
-    # 5. OUTPUT
-    # =========================
 
     return {
         "type": interaction_type,
@@ -840,3 +831,66 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
             "speed": speed_class
         }
     }
+
+
+
+# CAS MULTI-AGENT (avec des groupes d'usagers) (1 cycliste VS 1 groupe de piétons, Groupe de cyclistes VS groupe de piétons)
+
+def hausdorff_distance(A, B):
+    """
+    A, B: arrays de taille (N,2) et (M,2) respectivement. 
+    """
+
+    def directed(A, B):
+        dists = []
+        for a in A:
+            d = np.min(np.linalg.norm(B - a, axis=1))
+            dists.append(d)
+        return np.max(dists)
+
+    return max(directed(A, B), directed(B, A))
+
+def min_distance(A, B): # pour prendre la dist min entre 2 groupes de points (la distance de Hausdorff)
+    min_d = float("inf")
+    for a in A:
+        d = np.min(np.linalg.norm(B - a, axis=1))
+        if d < min_d:
+            min_d = d
+    return min_d
+
+
+def compute_group_distances_over_time(df):
+    results = []
+
+    for t in df[COL_TIME].unique():
+        frame = df[df[COL_TIME] == t]
+
+        P = frame[frame[COL_CLASS] == 1][["x_m", "y_m"]].values
+        C = frame[frame[COL_CLASS] == 2][["x_m", "y_m"]].values
+
+        if len(P) == 0 or len(C) == 0:
+            continue
+
+        h = hausdorff_distance(P, C)
+        dmin = min_distance(P, C)
+
+        results.append((t, h, dmin))
+
+    return np.array(results)
+
+
+def plot_group_distances(results):
+    times = results[:,0]
+    haus = results[:,1]
+    dmin = results[:,2]
+
+    plt.figure(figsize=(10,5))
+    plt.plot(times, haus, label="Hausdorff distance")
+    plt.plot(times, dmin, label="Min distance", linestyle="--")
+
+    plt.xlabel("Temps")
+    plt.ylabel("Distance (m)")
+    plt.title("Distances groupe piétons - groupe cyclistes")
+    plt.legend()
+    plt.grid()
+    plt.show()
