@@ -631,6 +631,68 @@ def classify_approach_angle_interaction(df, ped_id, cyc_id, times, angles):
         "angle_median": np.median(angles_inter)
     }
 
+def classify_distance_interaction(times, distances, intervals):
+    """
+    Classifie une interaction en fonction de la distance piéton-cycliste.
+
+    Parameters:
+        times : array (temps ou frames)
+        distances : array (m)
+        intervals : [(t_start, t_end), ...]
+    
+    Returns:
+        dict avec classification + stats
+    """
+
+    if len(intervals) == 0:
+        return {
+            "label": "NO_INTERACTION",
+            "risk_level": "NONE",
+            "min_distance": None,
+            "mean_distance": None
+        }
+
+    # ===== filtrer les points pendant interaction =====
+    mask = np.zeros_like(times, dtype=bool)
+
+    for (start, end) in intervals:
+        mask |= (times >= start) & (times <= end)
+
+    d_inter = distances[mask]
+
+    if len(d_inter) == 0:
+        return {
+            "label": "NO_VALID_DATA",
+            "risk_level": "UNKNOWN"
+        }
+
+    d_min = np.min(d_inter)
+    d_mean = np.mean(d_inter)
+
+    # ===== classification =====
+    if d_min < 1.5:
+        label = "VERY_CLOSE"
+        risk = "HIGH"
+
+    elif d_min < 3.0:
+        label = "CLOSE"
+        risk = "MEDIUM"
+
+    elif d_min < 5.0:
+        label = "PRETTY_CLOSE"
+        risk = "LOW"
+
+    else:
+        label = "DISTANT"
+        risk = "LOW"
+
+    return {
+        "label_main": label,
+        "risk_level": risk, # à voir en fonction de la vitesse du cycliste
+        "min_distance": float(d_min),
+        "mean_distance": float(d_mean)
+    }
+
 
 def classify_relative_speed(v_rel):
     # pour des vitesses en km/h

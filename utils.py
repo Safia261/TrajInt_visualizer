@@ -83,6 +83,86 @@ def compute_speed(g, fps):
     return times[1:], speeds, speeds_kmh
 
 
+def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, return_class=False):
+    """
+    Calcule et trace la distance entre un piéton et un cycliste.
+
+    Returns:
+        times
+        distances
+        (optionnel) intervals
+    """
+
+    # ===== extraction =====
+    ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
+    cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
+
+    # ===== synchronisation =====
+    common_times = np.intersect1d(
+        ped[COL_TIME].values,
+        cyc[COL_TIME].values
+    )
+
+    if len(common_times) == 0:
+        return None, None
+
+    distances = []
+    valid_times = []
+
+    for t in common_times:
+        p = ped[ped[COL_TIME] == t].iloc[0]
+        c = cyc[cyc[COL_TIME] == t].iloc[0]
+
+        dx = p["x_m"] - c["x_m"]
+        dy = p["y_m"] - c["y_m"]
+
+        dist = np.hypot(dx, dy)
+
+        distances.append(dist)
+        valid_times.append(t)
+
+    distances = np.array(distances)
+    valid_times = np.array(valid_times)
+
+    dist_min = distances.min()
+    idx_min = np.argmin(distances)
+    t_min = valid_times[idx_min]
+    t_min_plot = t_min / fps
+    
+
+    # ===== intervalles interaction =====
+    from analysis_interactions import compute_ped_cyc_interactions_with_time
+    interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
+    key = tuple(sorted((ped_id, cyc_id)))
+    frames = interactions.get(key, [])
+
+    intervals = frames_to_intervals(frames) if len(frames) > 0 else []
+
+    intervals_plot = [(s / fps, e / fps) for s, e in intervals]
+
+    # ===== PLOT =====
+    if plot:
+        plt.figure(figsize=(10, 4))
+        plt.plot(valid_times / fps, distances, label="Distance (m)")
+        plt.axhline(distance_threshold, color="red", linestyle="--", label="Seuil interaction (5m)")
+        add_time_markers(plt.gca(), intervals_plot)
+        plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Distance minimale = {dist_min:.2f} m")
+        plt.xlabel("Temps (s)")
+        plt.ylabel("Distance (m)")
+        plt.title(f"Distance piéton {ped_id} - cycliste {cyc_id}")
+        plt.legend()
+        plt.grid()
+
+        plt.tight_layout()
+        plt.show()
+    
+    if return_class:
+        from analysis_interactions import classify_distance_interaction
+        return valid_times, distances, dist_min, classify_distance_interaction(valid_times, distances, intervals)
+
+    return valid_times, distances, dist_min
+
+
 def find_closest_ped_cyc(df):
     min_dist = float("inf")
     best_pair = (None, None)
@@ -169,104 +249,6 @@ def add_spatial_markers(ax, df, ped_id, intervals):
                 label="Fin interaction" if i == 0 else ""
             )
 
-def compute_agent_direction(
-    df,
-    agent_id,
-    fps,
-    mode="vector",   # "vector" or "angle"
-    angle_unit = "red", # "rad" or "deg"
-    normalize=False,
-    plot=False
-):
-    """
-    Calcule la direction d'un agent à partir de ses déplacements successifs.
-
-    Parameters:
-        df : DataFrame
-        agent_id : int
-        mode : "vector" ou "angle"
-        angle_unit: "rad" ou "deg"
-        normalize : si True, retourne des vecteurs unitaires
-        plot : affiche la direction sur la trajectoire
-
-    Returns:
-        - mode="vector" -> array (dx, dy)
-        - mode="angle"  -> array theta (radians)
-    """
-
-    g = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
-
-    x = g["x_m"].values
-    y = g["y_m"].values
-    t = g[COL_TIME].values
-
-    if len(x) < 2:
-        return None # impossible de calculer la direction
-
-    dx = np.diff(x)
-    dy = np.diff(y)
-
-    if normalize:
-        norm = np.hypot(dx, dy)
-        norm[norm == 0] = 1e-9
-        dx = dx / norm
-        dy = dy / norm
-
-    if mode == "angle":
-        angles = np.arctan2(dy, dx) # en radians
-        if angle_unit == "deg":
-            angles = np.degrees(angles)
-        direction = angles
-    else: # sinon s/s forme de vecteur
-        direction = np.stack([dx, dy], axis=1)
-
-    
-    if plot:
-
-        if mode == "vector":
-            plt.figure(figsize=(8, 6))
-            plt.plot(x, y, "k--", alpha=0.4, label="trajectory")
-            plt.quiver(
-                x[:-1], y[:-1],
-                dx, dy,
-                angles="xy",
-                scale_units="xy",
-                scale=1,
-                color="red"
-            )
-            plt.title(f"Direction vectors - ID {agent_id}")
-            plt.gca().invert_yaxis()
-            plt.grid()
-            plt.legend()
-            plt.show()
-
-        else:
-            # plt.plot(t[1:], direction)
-            # plt.title(f"Direction angle ({angle_unit}) - ID {agent_id}")
-            # plt.ylabel(f"angle ({angle_unit})")
-            # plt.xlabel("time")
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-
-            ax1.plot(t[1:]/fps, angles, label="angle")
-            ax1.set_xlabel("Temps (s)")
-            ax1.set_ylabel(f"Angle ({angle_unit})")  # ou degrés
-            ax1.set_title(f"Direction angle ({angle_unit}) au cours du temps - ID {agent_id}")
-            ax1.grid()
-
-            ax2.plot(x[:-1], y[:-1], linestyle="--", color="gray", label="trajectory")
-            ax2.set_xlabel("x (m)")
-            ax2.set_ylabel("y (m)")
-            ax2.set_title("Trajectoire spatiale")
-            ax2.invert_yaxis()
-            ax2.grid()
-            sc = ax2.scatter(x[:-1], y[:-1], c=t[1:], cmap="viridis", s=10)
-            plt.colorbar(sc, ax=ax2, label="Temps")
-
-            plt.legend()
-            plt.show()
-
-
-    return direction
 
 
 def compute_velocity_vectors(g, fps, plot=False):
