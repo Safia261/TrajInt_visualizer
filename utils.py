@@ -1,5 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.path import Path
+from sklearn.cluster import DBSCAN
+from scipy.spatial import ConvexHull, convex_hull_plot_2d
+from scipy.spatial.distance import cdist, directed_hausdorff
 from config import *
 
 def compute_interaction_intervals(df, ped_id, cyc_id, fps, distance_threshold=5.0):
@@ -651,6 +656,126 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
             return times, rel_speeds, rel_speeds_kmh, angles
 
 
+import numpy as np
+
+def compute_vector_direction_series(df_agent):
+    """
+    Retourne une série de vecteurs direction normalisés
+    entre chaque frame consécutive.
+    """
+    df_agent = df_agent.sort_values(COL_TIME)
+
+    directions = []
+    times = df_agent[COL_TIME].values
+
+    for i in range(1, len(df_agent)):
+        dx = df_agent["x_m"].iloc[i] - df_agent["x_m"].iloc[i - 1]
+        dy = df_agent["y_m"].iloc[i] - df_agent["y_m"].iloc[i - 1]
+
+        norm = np.hypot(dx, dy)
+
+        if norm == 0:
+            directions.append(np.array([0.0, 0.0]))
+        else:
+            directions.append(np.array([dx / norm, dy / norm]))
+
+    return np.array(directions), times[1:]
+
+def compute_direction_variation(directions):
+    """
+    Calcule les variations angulaires (en radians) entre directions successives.
+    """
+
+    variations = []
+
+    for i in range(1, len(directions)):
+        v1 = directions[i - 1]
+        v2 = directions[i]
+
+        dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
+        angle = np.arccos(dot)  # radians
+
+        variations.append(angle)
+
+    return np.array(variations)
+
+def compute_distance_series(df, id_A, id_B, fps=None, return_seconds=False):
+    """
+    Distance entre deux agents au cours du temps.
+
+    Returns:
+        times, distances
+    """
+
+    A = df[df[COL_ID] == id_A].sort_values(COL_TIME)
+    B = df[df[COL_ID] == id_B].sort_values(COL_TIME)
+
+    common_times = np.intersect1d(
+        A[COL_TIME].values,
+        B[COL_TIME].values
+    )
+
+    if len(common_times) == 0:
+        return None, None
+
+    A_sync = A[A[COL_TIME].isin(common_times)]
+    B_sync = B[B[COL_TIME].isin(common_times)]
+
+    dx = A_sync["x_m"].values - B_sync["x_m"].values
+    dy = A_sync["y_m"].values - B_sync["y_m"].values
+
+    distances = np.hypot(dx, dy)
+
+    if return_seconds and fps is not None:
+        return common_times / fps, distances
+
+    return common_times, distances
+
+
+def compute_relative_position_series(df, id_A, id_B, fps=None, return_seconds=False):
+    """
+    Position relative A par rapport à B (A - B)
+
+    Returns:
+        times, dx, dy, distances
+    """
+
+    A = df[df[COL_ID] == id_A].sort_values(COL_TIME)
+    B = df[df[COL_ID] == id_B].sort_values(COL_TIME)
+
+    common_times = np.intersect1d(
+        A[COL_TIME].values,
+        B[COL_TIME].values
+    )
+
+    if len(common_times) == 0:
+        return None
+
+    A_sync = A[A[COL_TIME].isin(common_times)]
+    B_sync = B[B[COL_TIME].isin(common_times)]
+
+    dx = A_sync["x_m"].values - B_sync["x_m"].values
+    dy = A_sync["y_m"].values - B_sync["y_m"].values
+
+    distances = np.hypot(dx, dy)
+
+    if return_seconds and fps is not None:
+        return common_times / fps, dx, dy, distances
+
+    return common_times, dx, dy, distances
+
+
+def filter_series_by_intervals(times, values, intervals):
+    """
+    Garde uniquement les valeurs dans les intervalles d'interaction
+    """
+    mask = np.zeros_like(times, dtype=bool)
+
+    for start, end in intervals:
+        mask |= (times >= start) & (times <= end)
+
+    return times[mask], values[mask]
+
 
 def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, return_class=False):
     """
@@ -713,6 +838,22 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
     # === 3. PET ===
     pet = abs(t_ped - t_cyc) / fps
 
+    if t_ped <= t_cyc:
+        first_out = "Ped"
+        last_in = "Cyc"
+    else:
+        first_out = "Cyc"
+        last_in = "Ped"
+
+    # P = ped[["x_m","y_m"]].values
+    # C = cyc[["x_m","y_m"]].values
+
+    # dists = cdist(P, C)
+    # i, j = np.unravel_index(np.argmin(dists), dists.shape)
+
+    # conflict_point = ((P[i][0] + C[j][0]) / 2,
+    #                 (P[i][1] + C[j][1]) / 2)
+
     if plot:
         plt.figure(figsize=(8, 8))
 
@@ -733,17 +874,19 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
                     label="Point conflit")
 
         # points de passage
-        plt.scatter(x_ped, y_ped,
-                    color="blue",
-                    s=80,
-                    edgecolor="black",
-                    label="Passage piéton")
+        # plt.scatter(x_ped, y_ped,
+        #             color="blue",
+        #             s=80,
+        #             edgecolor="black",
+        #             label="Passage piéton")
 
-        plt.scatter(x_cyc, y_cyc,
-                    color="green",
-                    s=80,
-                    edgecolor="black",
-                    label="Passage cycliste")
+        # plt.scatter(x_cyc, y_cyc,
+        #             color="green",
+        #             s=80,
+        #             edgecolor="black",
+        #             label="Passage cycliste")
+
+        plt.text(cx + 2.0, cy + 2.0, f"First out: {first_out}\nLast in: {last_in}", bbox=dict(facecolor="white", alpha=0.8))
 
         # cercle zone conflit
         circle = plt.Circle(
@@ -973,3 +1116,1618 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
 #         return None
 
 #     return ttc
+
+
+
+def dbscan(df, eps=2.0, min_samples=2, plot=False, verbose=False):
+    """
+    Applique DBSCAN par type d'agent (piétons, cyclistes). Cela forme des clusters, et donc des groupes de piétons et cyclistes.
+
+    Returns:
+        results = {
+            class_id: {
+                "labels": array,
+                "n_clusters": int,
+                "n_noise": int,
+                "points": array (Nx2)
+            }
+        }
+    """
+
+    results = {}
+
+    for cls in df[COL_CLASS].unique():
+        sub = df[df[COL_CLASS] == cls]
+
+        if len(sub) == 0:
+            continue
+
+        X = sub[["x_m", "y_m"]].values
+
+        clustering = DBSCAN(eps=eps, min_samples=min_samples)
+        labels = clustering.fit_predict(X)
+
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        n_noise = np.sum(labels == -1) # le bruit = les outliers (les agents trop éloignés qui ne font pas partis des clusters)
+
+        results[cls] = {
+            "labels": labels,
+            "n_clusters": n_clusters,
+            "n_noise": int(n_noise),
+            "points": X,
+            "ids": sub[COL_ID].values
+        }
+    
+    if verbose:
+        for cls, data in results.items():
+            print(f"\n{CLASS_NAMES.get(cls)}")
+            print(f"Nombre de clusters : {data['n_clusters']}")
+            print(f"Points bruit       : {data['n_noise']}")
+    
+    if plot:
+        plt.figure(figsize=(8, 8))
+
+        for cls, data in results.items():
+            X = data["points"]
+            labels = data["labels"]
+
+            unique_labels = set(labels)
+
+            for k in unique_labels:
+                mask = labels == k
+
+                if k == -1:
+                    # bruit
+                    color = "black"
+                    label = f"{CLASS_NAMES.get(cls)} noise"
+                    size = 20
+                    alpha = 0.5
+                else:
+                    color = None  # couleurs choisies autmatiquement
+                    label = f"{CLASS_NAMES.get(cls)} cluster {k}"
+                    size = 50
+                    alpha = 0.8
+
+                plt.scatter(
+                    X[mask, 0],
+                    X[mask, 1],
+                    s=size,
+                    alpha=alpha,
+                    label=label
+                )
+
+        plt.xlabel("x (m)")
+        plt.ylabel("y (m)")
+        plt.title("DBSCAN Clusters (par type d'agent)")
+        plt.legend()
+        plt.grid()
+        plt.axis("equal")
+        plt.gca().invert_yaxis()
+        plt.show()
+
+    return results
+
+
+
+# def detect_cluster_changes(df, fps, eps=2.0, min_samples=2, plot=False, verbose=False):
+#     """
+#     Détecte les frames où la structure de clustering change.
+    
+#     Returns:
+#         change_frames : liste des frames où il y a un changement
+#         history : dict t -> (n_clusters, n_noise)
+#         events: liste de tuples (t, enent_type)
+#     """
+
+#     history = {}
+#     change_frames = []
+#     events = []
+
+#     # prev = None
+#     prev_clusters = None
+#     prev_noise = None
+#     dbscan_history = {}
+
+#     for t in sorted(df[COL_TIME].unique()):
+#         frame = df[df[COL_TIME] == t]
+
+#         results = dbscan(frame, eps, min_samples)
+#         dbscan_history[t] = (frame, results)
+
+#         # on agrège toutes classes
+#         total_clusters = sum(r["n_clusters"] for r in results.values())
+#         total_noise = sum(r["n_noise"] for r in results.values())
+
+#         current = (total_clusters, total_noise)
+#         history[t] = current
+
+#         # if prev is not None and current != prev:
+#         #     change_frames.append(t)
+
+#         # prev = current
+    
+#         # if verbose:
+#         #     for cls, data in results.items():
+#         #         print(f"{CLASS_NAMES.get(cls)} : "
+#         #                 f"{data['n_clusters']} clusters | "
+#         #                 f"{data['n_noise']} bruit")
+#         #     print(f"TOTAL : {total_clusters} clusters | {total_noise} bruit")
+
+#         if prev_clusters is not None:
+#             if total_clusters > prev_clusters:
+#                 event = "NEW_CLUSTER / MERGE"
+#                 change_frames.append(t)
+
+#             elif total_clusters < prev_clusters:
+#                 event = "CLUSTER_DISSOCIATION"
+#                 change_frames.append(t)
+
+#             elif total_noise != prev_noise:
+#                 event = "NOISE_CHANGE"
+#                 change_frames.append(t)
+
+#             else:
+#                 event = None
+
+#             if event is not None:
+#                 events.append((t, event))
+
+#                 if verbose:
+#                     print(f"Changement de configuration détecté à t={t} : {event}")
+
+#         # update
+#         prev_clusters = total_clusters
+#         prev_noise = total_noise
+
+    
+#     if plot:
+#         times = np.array(list(history.keys()))
+#         clusters = np.array([v[0] for v in history.values()])
+#         noise = np.array([v[1] for v in history.values()])
+
+#         plt.figure(figsize=(10, 4))
+#         plt.plot(times / fps, clusters, label="Nb clusters")
+#         plt.plot(times / fps, noise, label="Nb bruit")
+#         plt.xlabel("Temps (s)")
+#         plt.ylabel("Count")
+#         plt.title("Évolution des clusters dans le temps")
+#         plt.legend()
+#         plt.grid()
+#         plt.show()
+    
+#     if plot and len(events) > 0:
+
+#         for (t, event) in events:
+#             frame, results = dbscan_history[t]
+
+#             plt.figure(figsize=(6, 6))
+
+#             for cls, data in results.items():
+#                 points = data["points"]
+#                 labels = data["labels"]
+
+#                 if len(points) == 0:
+#                     continue
+
+#                 unique_labels = set(labels)
+
+#                 for lab in unique_labels:
+#                     mask = labels == lab
+
+#                     if lab == -1:
+#                         # bruit
+#                         plt.scatter(
+#                             points[mask, 0],
+#                             points[mask, 1],
+#                             c="black",
+#                             marker="x",
+#                             label="noise" if cls == 1 else ""
+#                         )
+#                     else:
+#                         plt.scatter(
+#                             points[mask, 0],
+#                             points[mask, 1],
+#                             label=f"{CLASS_NAMES.get(cls)} C{lab}"
+#                         )
+
+#     return change_frames, history, events
+
+
+def compute_cluster_hulls(results, plot=False):
+    """
+    results = sortie de dbscan (par classe). Donc pour chaque cluster, calcul de sa convex hull / enveloppe convexe.
+
+    Returns:
+        hulls: dict {class: [hulls]}
+    """
+
+    hulls = {}
+
+    for cls, data in results.items():
+        points = data["points"]
+        labels = data["labels"]
+
+        hulls[cls] = []
+
+        for lab in set(labels):
+            if lab == -1:
+                continue  # bruit
+
+            cluster_pts = points[labels == lab]
+
+            if len(cluster_pts) >= 3:
+                hull = ConvexHull(cluster_pts)
+                hulls[cls].append((cluster_pts, hull))
+    
+    if plot:
+        plt.figure(figsize=(6,6))
+
+        for cls, data in results.items():
+            points = data["points"]
+            labels = data["labels"]
+
+            for lab in set(labels):
+                mask = labels == lab
+                cluster_pts = points[mask]
+
+                if lab == -1:
+                    plt.scatter(cluster_pts[:,0], cluster_pts[:,1],
+                                c="black", marker="x")
+                    continue
+
+                plt.scatter(cluster_pts[:,0], cluster_pts[:,1],
+                            label=f"{CLASS_NAMES.get(cls)} C{lab}")
+
+                if len(cluster_pts) >= 3:
+                    hull = ConvexHull(cluster_pts)
+
+                    for simplex in hull.simplices:
+                        plt.plot(cluster_pts[simplex, 0],
+                                cluster_pts[simplex, 1], 'r-')
+
+        plt.gca().invert_yaxis()
+        plt.legend()
+        plt.grid()
+        plt.axis("equal")
+        plt.title("Clusters + Convex Hull")
+        plt.show()
+
+    return hulls
+
+
+def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False, fps=None, save_gif=False, output_path="clusters.gif"):
+    """
+    Calcule DBSCAN + convex hull frame par frame.
+
+    Returns:
+        history[t] = {
+            "ped": {...},
+            "cyc": {...}
+        }
+    """
+
+    history = {}
+
+    for t in sorted(df[COL_TIME].unique()):
+        frame = df[df[COL_TIME] == t]
+
+        history[t] = {}
+
+        for cls, name in [(1, "ped"), (2, "cyc")]:
+            sub = frame[frame[COL_CLASS] == cls]
+
+            if len(sub) == 0:
+                history[t][name] = None
+                continue
+
+            points = sub[["x_m", "y_m"]].values
+            ids = sub[COL_ID].values
+
+            clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+            labels = clustering.labels_
+
+            clusters = []
+            clusters_ids = []
+            hulls = []
+
+            for lab in set(labels):
+                if lab == -1: # bruit = usager qui ne fait pas parti d'aucun cluster
+                    continue
+
+                # pts = points[labels == lab]
+                mask = labels == lab
+                pts = points[mask]
+                ids_cluster = ids[mask] # les ids des agents présents dans le cluster en question
+
+                clusters.append(pts)
+                clusters_ids.append(set(ids_cluster))
+                
+                hull = None
+                if len(pts) >= 3:
+                    hull = ConvexHull(pts)
+                    hulls.append((pts, hull))
+                
+            history[t][name] = {
+                "points": points,
+                "ids": ids,
+                "labels": labels,
+                "clusters": clusters,
+                "clusters_ids": clusters_ids,
+                "hulls": hulls,
+                "n_clusters": len(clusters),
+                "noise": points[labels == -1],
+                "noise_ids": ids[labels == -1], # les ids des agents exclus des clusters
+                "n_noise": np.sum(labels == -1)
+            }
+    
+    if plot:
+        times = sorted(history.keys())
+        fig, ax = plt.subplots(figsize=(6,6))
+
+        def update(i):
+            ax.clear()
+
+            t = times[i]
+            data = history[t]
+
+            legend_elements = {}
+
+            for name, color, noise_color, marker in [("ped", "blue", "cyan", "o"), ("cyc", "green", "lime", "s")]:
+                if data[name] is None:
+                    continue
+
+                points = data[name]["points"]
+                labels = data[name]["labels"]
+                ids = data[name]["ids"]
+
+                # clusters
+                for lab in set(labels):
+                    mask = labels == lab
+                    pts = points[mask]
+
+                    # if lab == -1:
+                    #     ax.scatter(pts[:,0], pts[:,1],
+                    #             c="black", marker="x")
+                    # else:
+                    #     ax.scatter(pts[:,0], pts[:,1], c=color)
+
+                    if lab == -1:
+                        continue
+
+                    label_name = f"{name.upper()} cluster {lab}"
+
+                    sc = ax.scatter(
+                        pts[:,0], pts[:,1],
+                        c=color,
+                        marker=marker,
+                        label=label_name
+                    )
+
+                    if label_name not in legend_elements:
+                        legend_elements[label_name] = sc
+                
+                # bruit
+                if len(data[name]["noise"]) > 0:
+                    sc = ax.scatter(
+                        data[name]["noise"][:,0], data[name]["noise"][:,1],
+                        c=noise_color,
+                        marker="x",
+                        label=f"{name.upper()} noise"
+                    )
+
+                    if f"{name.upper()} noise" not in legend_elements:
+                        legend_elements[f"{name.upper()} noise"] = sc
+
+                # convex hull
+                for h in data[name]["hulls"]:
+                    if h is None:
+                        continue
+
+                    pts, hull = h
+                    for simplex in hull.simplices:
+                        # ax.plot(pts[simplex,0], pts[simplex,1], color=color)
+                        ln, = ax.plot(
+                            pts[simplex,0],
+                            pts[simplex,1],
+                            color=color,
+                            linewidth=2,
+                            linestyle="-",
+                            label=f"{name.upper()} hull"
+                        )
+
+                        if f"{name.upper()} hull" not in legend_elements:
+                            legend_elements[f"{name.upper()} hull"] = ln
+                
+                # affichage des ids
+                text_color = "blue" if name == "ped" else "green"
+                for (x, y), aid in zip(points, ids):
+                    ax.text(
+                        x + 0.2, y + 0.2,
+                        str(aid),
+                        fontsize=8,
+                        ha='center',
+                        va='center',
+                        color=text_color,
+                        bbox=dict(
+                            facecolor="white",
+                            alpha=0.6,
+                            edgecolor="none",
+                            boxstyle="round,pad=0.2"
+                        )
+                    )
+
+            ax.set_title(f"Clusters DBSCAN and Convex Hulls - Frame {t}")
+            ax.set_xlim(df["x_m"].min(), df["x_m"].max())
+            ax.set_ylim(df["y_m"].max(), df["y_m"].min())  # inversé
+            ax.set_xlabel("x (m)")
+            ax.set_ylabel("y (m)")
+            ax.legend(legend_elements.values(), legend_elements.keys(), fontsize=8)
+            ax.grid()
+
+        ani = FuncAnimation(fig, update, frames=len(times), interval=1000/fps)
+
+        if save_gif:
+            ani.save(output_path, writer=PillowWriter(fps=fps))
+            print(f"GIF enregistré ici : {output_path}")
+
+        plt.show()
+
+    return history
+
+
+def match_clusters(prev_clusters, curr_clusters):
+    """
+    Associe clusters entre t-1 et t via overlap des points.
+
+    prev_clusters / curr_clusters = liste de sets d'IDs
+
+    Returns:
+        matches: dict prev_id -> list of curr_ids
+    """
+
+    matches = {}
+
+    for i, prev in enumerate(prev_clusters):
+        matches[i] = []
+
+        for j, curr in enumerate(curr_clusters):
+            overlap = len(prev.intersection(curr))
+
+            if overlap > 0:
+                matches[i].append(j)
+
+    return matches
+
+
+def detect_cluster_splits(prev_clusters, curr_clusters):
+    """
+    Détecte si un cluster se sépare.
+
+    Returns:
+        splits = [(prev_id, [new_ids])]
+    """
+
+    matches = match_clusters(prev_clusters, curr_clusters)
+
+    splits = []
+
+    for prev_id, curr_ids in matches.items():
+        if len(curr_ids) >= 2:
+            splits.append((prev_id, curr_ids))
+
+    return splits
+
+
+def is_point_in_hull(point, hull_pts):
+    """
+    Test si un point est dans un convex hull.
+    """
+    path = Path(hull_pts)
+    return path.contains_point(point)
+
+
+def is_cyclist_near_cluster(cluster_pts, cyclists_pts, threshold=2.0):
+    """
+    Vérifie si un cycliste est proche d'un cluster.
+    Permet de vérifier si la séparation d'un cluster en 2 est due au passage d'un cycliste.
+    """
+    for c in cyclists_pts:
+        dists = np.linalg.norm(cluster_pts - c, axis=1)
+        if np.min(dists) < threshold:
+            return True
+    return False
+
+
+def detect_split_events_with_cyclists(history, distance_threshold=2.0):
+    """
+    Détecte les splits de clusters piétons et vérifie si un cycliste est impliqué.
+    """
+
+    events = []
+    times = sorted(history.keys())
+
+    prev_clusters = None
+
+    for t in times:
+        data = history[t]
+
+        if data["ped"] is None:
+            prev_clusters = None
+            continue
+
+        curr_clusters = data["ped"]["clusters_ids"]
+        ped_points = data["ped"]["points"]
+        ped_ids = data["ped"]["ids"]
+
+        # cyclistes
+        cyc_pts = []
+        cyc_ids = []
+
+        if data["cyc"] is not None:
+            cyc_pts = data["cyc"]["points"]
+            cyc_ids = data["cyc"]["ids"]
+
+        if prev_clusters is not None:
+
+            splits = detect_cluster_splits(prev_clusters, curr_clusters)
+
+            for prev_id, new_ids in splits:
+
+                prev_ids = list(prev_clusters[prev_id])
+
+                # récupérer positions du cluster AVANT split
+                mask = np.isin(ped_ids, prev_ids)
+                prev_pts = ped_points[mask]
+
+                if len(prev_pts) == 0:
+                    continue
+
+                # vérifier cycliste
+                involved = False
+                involved_cyclists = []
+
+                if len(cyc_pts) > 0:
+                    involved = is_cyclist_near_cluster(
+                        prev_pts,
+                        cyc_pts,
+                        threshold=distance_threshold
+                    )
+                
+                for c_pt, c_id in zip(cyc_pts, cyc_ids):
+                    dists = np.linalg.norm(prev_pts - c_pt, axis=1)
+
+                    if np.min(dists) < distance_threshold:
+                        involved_cyclists.append(c_id)
+
+                events.append({
+                    "time": t,
+                    "type": "SPLIT",
+                    "parent_cluster": prev_id,
+                    "child_clusters": new_ids,
+                    # "cyclist_involved": involved,
+                    "cyclist_involved": len(involved_cyclists) > 0,
+                    "cyclist_ids": [int(c) for c in involved_cyclists]
+                })
+
+        prev_clusters = curr_clusters
+
+    return events
+
+
+def detect_cyclists_in_hulls(history):
+    results = []
+
+    for t, data in history.items():
+
+        if data["ped"] is None or data["cyc"] is None:
+            continue
+
+        cyc_pts = data["cyc"]["points"]
+        cyc_ids = data["cyc"]["ids"]
+
+        for i, (pts, hull) in enumerate(data["ped"]["hulls"]):
+            hull_pts = pts[hull.vertices]
+            cyclists_inside = []
+
+            for c_pt, c_id in zip(cyc_pts, cyc_ids):
+                if is_point_in_hull(c_pt, hull_pts):
+                    cyclists_inside.append(c_id)
+
+            if len(cyclists_inside) > 0:
+                results.append({
+                    "time_frame": t,
+                    # "time_s": t / fps,
+                    "event": "CYCLIST_IN_HULL",
+                    "hull_id": i,
+                    "cyclist_ids": [int(c) for c in cyclists_inside]
+                })
+
+    return results
+
+
+def min_distance_inter_agent(A, B):
+    """
+    A, B : arrays (N,2) et (M,2). Distance minimale inter-agent (cycliste VS piéton, ou cycliste VS groupe).
+    """
+    if len(A) == 0 or len(B) == 0:
+        return np.nan
+
+    dists = cdist(A, B)
+    return np.min(dists)
+
+
+def min_distance_point_cluster(point, cluster_pts):
+    d = np.linalg.norm(cluster_pts - point, axis=1)
+    return np.min(d)
+
+def min_distance_clusters(a_pts, b_pts):
+    d = np.linalg.norm(a_pts[:, None, :] - b_pts[None, :, :], axis=2)
+    return np.min(d)
+
+
+def hausdorff_distance(A, B):
+    if len(A) == 0 or len(B) == 0:
+        return np.nan
+
+    d_ab = directed_hausdorff(A, B)[0]
+    d_ba = directed_hausdorff(B, A)[0]
+
+    return max(d_ab, d_ba)
+
+
+def modified_hausdorff(A, B):
+    if len(A) == 0 or len(B) == 0:
+        return np.nan
+
+    dists = cdist(A, B)
+
+    mean_ab = np.mean(np.min(dists, axis=1))
+    mean_ba = np.mean(np.min(dists, axis=0))
+
+    return max(mean_ab, mean_ba)
+
+
+# def compute_distance_features(history, fps=None, plot=False):
+#     """
+#     Retourne les distances pour chaque frame
+#     """
+
+#     features = {}
+
+#     for t, data in history.items():
+
+#         if data["ped"] is None or data["cyc"] is None:
+#             continue
+
+#         ped = data["ped"]["points"]
+#         cyc = data["cyc"]["points"]
+
+#         features[t] = {
+#             "min_dist": min_distance_inter_agent(ped, cyc),
+#             "hausdorff": hausdorff_distance(ped, cyc),
+#             "mod_hausdorff": modified_hausdorff(ped, cyc)
+#         }
+    
+#     if plot:
+#         times = np.array(list(features.keys()))
+#         min_d = np.array([f["min_dist"] for f in features.values()])
+#         haus = np.array([f["hausdorff"] for f in features.values()])
+#         mod_haus = np.array([f["mod_hausdorff"] for f in features.values()])
+
+#         plt.figure(figsize=(10,4))
+
+#         plt.plot(times/fps, min_d, label="Min distance")
+#         plt.plot(times/fps, haus, label="Hausdorff")
+#         plt.plot(times/fps, mod_haus, label="Modified Hausdorff")
+
+#         plt.xlabel("Temps (s)")
+#         plt.ylabel("Distance (m)")
+#         plt.legend()
+#         plt.grid()
+#         plt.title("Distances cycliste - groupe piétons")
+
+#         plt.show()
+
+#     return features
+
+
+def compute_cluster_distances(history, fps=None, plot=False):
+    results = {}
+
+    for t, data in history.items():
+
+        if data["ped"] is None or data["cyc"] is None:
+            continue
+
+        cyc = data["cyc"]["points"]
+        ped_clusters = data["ped"]["clusters"]
+
+        results[t] = []
+
+        for i, cluster in enumerate(ped_clusters):
+
+            res = {
+                "cluster_id": i,
+                "min_dist": min_distance_inter_agent(cluster, cyc),
+                "hausdorff": hausdorff_distance(cluster, cyc),
+                "mod_hausdorff": modified_hausdorff(cluster, cyc)
+            }
+
+            results[t].append(res)
+    
+    if plot:
+        # récupérer tous les cluster_ids existants
+        cluster_ids = set()
+        for t in results:
+            for r in results[t]:
+                cluster_ids.add(r["cluster_id"])
+
+        cluster_ids = sorted(cluster_ids)
+
+        times = sorted(results.keys())
+        times_arr = np.array(times) / fps if fps else np.array(times)
+
+        plt.figure(figsize=(10,5))
+
+        for cid in cluster_ids:
+
+            min_vals = []
+            haus_vals = []
+            mod_vals = []
+
+            for t in times:
+                r_list = results.get(t, [])
+
+                r = next((r for r in r_list if r["cluster_id"] == cid), None)
+
+                if r is None:
+                    min_vals.append(np.nan)
+                    haus_vals.append(np.nan)
+                    mod_vals.append(np.nan)
+                else:
+                    min_vals.append(r["min_dist"])
+                    haus_vals.append(r["hausdorff"])
+                    mod_vals.append(r["mod_hausdorff"])
+
+            # plot
+            plt.plot(times_arr, min_vals, label=f"Cluster {cid} - min")
+            plt.plot(times_arr, haus_vals, linestyle="--", label=f"Cluster {cid} - haus")
+            plt.plot(times_arr, mod_vals, linestyle=":", label=f"Cluster {cid} - mod")
+
+        plt.xlabel("Temps (s)" if fps else "Frame")
+        plt.ylabel("Distance (m)")
+        plt.title("Distances cluster piétons - cyclistes")
+        plt.legend(fontsize=8)
+        plt.grid()
+
+        plt.show()
+
+
+    return results
+
+
+
+# def detect_ped_cluster_interactions(cyclist_ids, pedestrian_clusters, df, threshold=5.0):
+#     """
+#     Détecte interaction entre cycliste individuel et cluster de piétons.
+#     """
+#     interactions = []
+
+#     for cyc_id in cyclist_ids:
+#         cyc_cluster = {cyc_id}  # cycliste seul
+
+#         for i, ped_cluster in enumerate(pedestrian_clusters):
+#             d = compute_min_distance_inter_agent(cyc_cluster, ped_cluster, df)
+
+#             if d <= threshold:
+#                 interactions.append({
+#                     "type": "CYCLIST_INDIVIDUAL - PEDESTRIAN_CLUSTER",
+#                     "cyclist": cyc_id,
+#                     "ped_cluster": ped_cluster,
+#                     "distance": d
+#                 })
+
+#     return interactions
+
+
+# def detect_cluster_interactions(cyclist_clusters, pedestrian_clusters, df, threshold=5.0):
+#     """
+#     Détecte interactions entre cluster piétons et cluster cyclistes.
+#     """
+#     interactions = []
+
+#     for i, cyc_cluster in enumerate(cyclist_clusters):
+#         for j, ped_cluster in enumerate(pedestrian_clusters):
+
+#             d = compute_min_distance_inter_agent(cyc_cluster, ped_cluster, df)
+
+#             if d <= threshold:
+#                 interactions.append({
+#                     "type": "CYCLIST_CLUSTER - PEDESTRIAN_CLUSTER",
+#                     "cyclist_cluster": cyc_cluster,
+#                     "ped_cluster": ped_cluster,
+#                     "distance": d
+#                 })
+
+#     return interactions
+
+
+def detect_ped_cluster_interactions(history, df, threshold=5.0):
+    frame_events = {}
+
+    for t, data in history.items():
+
+        if data["ped"] is None or data["cyc"] is None:
+            continue
+
+        ped_clusters = data["ped"]["clusters_ids"]
+        cyc_points = df[(df[COL_TIME] == t) & (df[COL_CLASS] == 2)]
+
+        if len(cyc_points) == 0:
+            continue
+
+        events = []
+
+        for _, cyc in cyc_points.iterrows():
+            cyc_id = cyc[COL_ID]
+            cyc_pos = np.array([cyc["x_m"], cyc["y_m"]])
+
+            for ped_cluster in ped_clusters:
+
+                ped_pts = df[
+                    (df[COL_TIME] == t) &
+                    (df[COL_ID].isin(ped_cluster))
+                ][["x_m", "y_m"]].values
+
+                if len(ped_pts) == 0:
+                    continue
+
+                d = min_distance_point_cluster(cyc_pos, ped_pts)
+
+                if d <= threshold:
+                    events.append({
+                        "cyclist": cyc_id,
+                        "ped_cluster": ped_cluster,
+                        "distance": d,
+                        "type": "CYCLIST_INDIVIDUAL - PEDESTRIAN_CLUSTER"
+                    })
+
+        frame_events[t] = events
+
+    return frame_events
+
+def detect_cluster_interactions(history, df, threshold=5.0):
+    frame_events = {}
+
+    for t, data in history.items():
+
+        if data["ped"] is None or data["cyc"] is None:
+            continue
+
+        ped_clusters = data["ped"]["clusters_ids"]
+        cyc_clusters = data["cyc"]["clusters_ids"]
+
+        events = []
+
+        for cyc_cluster in cyc_clusters:
+            cyc_pts = df[
+                (df[COL_TIME] == t) &
+                (df[COL_ID].isin(cyc_cluster))
+            ][["x_m", "y_m"]].values
+
+            if len(cyc_pts) == 0:
+                continue
+
+            for ped_cluster in ped_clusters:
+                ped_pts = df[
+                    (df[COL_TIME] == t) &
+                    (df[COL_ID].isin(ped_cluster))
+                ][["x_m", "y_m"]].values
+
+                if len(ped_pts) == 0:
+                    continue
+
+                d = min_distance_clusters(cyc_pts, ped_pts)
+
+                if d <= threshold:
+                    events.append({
+                        "cyclist_cluster": cyc_cluster,
+                        "ped_cluster": ped_cluster,
+                        "distance": d,
+                        "type": "CYCLIST_CLUSTER - PEDESTRIAN_CLUSTER"
+                    })
+
+        frame_events[t] = events
+
+    return frame_events
+
+
+# def build_temporal_interactions(history, threshold=5.0):
+#     active = {}
+#     events = []
+
+#     for t in sorted(history.keys()):
+
+#         frame = history[t]
+
+#         interactions = []
+
+#         interactions += detect_cluster_interactions(
+#             frame["cyc_clusters"],
+#             frame["ped_clusters"],
+#             frame["df"],
+#             threshold
+#         )
+
+#         interactions += detect_ped_cluster_interactions(
+#             frame["cyclist_ids"],
+#             frame["ped_clusters"],
+#             frame["df"],
+#             threshold
+#         )
+
+#         current_pairs = set()
+
+#         # =========================
+#         # transformer en clés uniques
+#         # =========================
+#         for inter in interactions:
+#             key = (
+#                 inter.get("cyclist", None),
+#                 tuple(inter.get("cyclist_cluster", [])) if "cyclist_cluster" in inter else inter.get("cyclist"),
+#                 tuple(inter["ped_cluster"])
+#             )
+
+#             current_pairs.add(key)
+
+#             # interaction déjà active
+#             if key in active:
+#                 active[key]["end"] = t
+#                 active[key]["frames"].append(t)
+#                 active[key]["min_distance"] = min(
+#                     active[key]["min_distance"],
+#                     inter["distance"]
+#                 )
+
+#             # nouvelle interaction
+#             else:
+#                 active[key] = {
+#                     "type": inter["type"],
+#                     "start": t,
+#                     "end": t,
+#                     "frames": [t],
+#                     "cyclist": inter.get("cyclist"),
+#                     "cyclist_cluster": inter.get("cyclist_cluster"),
+#                     "ped_cluster": inter["ped_cluster"],
+#                     "min_distance": inter["distance"]
+#                 }
+
+#         # =========================
+#         # fermer les interactions terminées
+#         # =========================
+#         to_remove = []
+
+#         for key in active:
+#             if key not in current_pairs:
+#                 events.append(active[key])
+#                 to_remove.append(key)
+
+#         for key in to_remove:
+#             del active[key]
+
+#     # ajouter les dernières actives
+#     events.extend(active.values())
+
+#     return events
+
+
+def build_interactions(df, history, threshold=5.0):
+    frame_events_1 = detect_ped_cluster_interactions(history, df, threshold=threshold)
+
+    frame_events_2 = detect_cluster_interactions(history, df, threshold=threshold)
+
+    # merge
+    for t in frame_events_2:
+        frame_events_1.setdefault(t, []).extend(frame_events_2[t])
+
+    frame_events = frame_events_1
+    active = {}
+    interactions = []
+
+    for t in sorted(frame_events.keys()):
+        events = frame_events[t]
+        current_keys = set()
+
+        for e in events:
+
+            if "cyclist" in e:
+                key = (e["cyclist"], tuple(e["ped_cluster"]))
+            else:
+                key = (tuple(e["cyclist_cluster"]), tuple(e["ped_cluster"]))
+
+            current_keys.add(key)
+
+            if key not in active:
+                active[key] = {
+                    "type": e["type"],
+                    "start": t,
+                    "end": t,
+                    "min_distance": e["distance"],
+                    "frames": [t]
+                }
+            else:
+                active[key]["end"] = t
+                active[key]["frames"].append(t)
+                active[key]["min_distance"] = min(
+                    active[key]["min_distance"],
+                    e["distance"]
+                )
+
+        # fermer les interactions disparues
+        to_remove = []
+
+        for key in active:
+            if key not in current_keys:
+                interactions.append(active[key])
+                to_remove.append(key)
+
+        for key in to_remove:
+            del active[key]
+
+    interactions.extend(active.values())
+    return interactions
+
+
+
+def extract_entities(frame_data):
+    """
+    Retourne les entités avec leurs IDs :
+    - clusters (avec ids)
+    - noise (avec ids)
+    """
+
+    entities = []
+
+    for cls_name in ["ped", "cyc"]:
+        data = frame_data[cls_name]
+        if data is None:
+            continue
+
+        # ===== CLUSTERS =====
+        for pts, ids in zip(data["clusters"], data["clusters_ids"]):
+            entities.append({
+                "type": cls_name + "_cluster",
+                "points": pts,
+                "ids": set(ids)
+            })
+
+        # ===== NOISE =====
+        if len(data["noise"]) > 0:
+            # chaque point bruit = entité individuelle
+            for pt, aid in zip(data["noise"], data["noise_ids"]):
+                entities.append({
+                    "type": cls_name + "_noise",
+                    "points": np.array([pt]),
+                    "ids": {aid}
+                })
+
+    return entities
+
+
+def min_distance(A, B):
+    return np.min(cdist(A, B))
+
+
+def detect_interactions_at_frame(frame_data, threshold=5.0):
+    """
+    Interactions à UNE frame avec IDs
+    """
+
+    entities = extract_entities(frame_data)
+    interactions = []
+
+    for i in range(len(entities)):
+        for j in range(i + 1, len(entities)):
+
+            A = entities[i]
+            B = entities[j]
+
+            d = min_distance(A["points"], B["points"])
+
+            if d <= threshold:
+                if A["type"].startswith("ped") and B["type"].startswith("cyc"):
+                    interactions.append({
+                        "type_ped": A["type"],
+                        "type_cyc": B["type"],
+                        "ids_ped": A["ids"],
+                        "ids_cyc": B["ids"]
+                    })
+
+                elif A["type"].startswith("cyc") and B["type"].startswith("ped"):
+                    interactions.append({
+                        "type_ped": B["type"],
+                        "type_cyc": A["type"],
+                        "ids_ped": B["ids"],
+                        "ids_cyc": A["ids"]
+                    })
+
+    return interactions
+
+
+def same_interaction(inter, active_inter):
+    """
+    Vérifie si une interaction correspond à une interaction active
+    Critère : overlap des IDs
+    """
+
+    if inter["type_ped"] != active_inter["type_ped"]:
+        return False
+    if inter["type_cyc"] != active_inter["type_cyc"]:
+        return False
+
+    overlap_A = len(inter["ids_ped"].intersection(active_inter["ids_ped"])) > 0
+    overlap_B = len(inter["ids_cyc"].intersection(active_inter["ids_cyc"])) > 0
+
+    return overlap_A and overlap_B
+
+
+def build_interaction_events(history, threshold=5.0):
+    """
+    Construit des interactions avec :
+    - start
+    - end
+    - ids impliqués (union sur le temps)
+    """
+
+    active_events = []
+    finished_events = []
+
+    for t in sorted(history.keys()):
+
+        frame_data = history[t]
+        interactions = detect_interactions_at_frame(frame_data, threshold)
+
+        updated = [False] * len(active_events)
+
+        for inter in interactions:
+
+            matched = False
+
+            for i, act in enumerate(active_events):
+
+                if same_interaction(inter, act):
+
+                    # update event
+                    act["end"] = t
+                    act["ids_ped"].update(inter["ids_ped"])
+                    act["ids_cyc"].update(inter["ids_cyc"])
+
+                    updated[i] = True
+                    matched = True
+                    break
+
+            if not matched:
+                # nouvelle interaction
+                active_events.append({
+                    "type_ped": inter["type_ped"],
+                    "type_cyc": inter["type_cyc"],
+                    "ids_ped": set(inter["ids_ped"]),
+                    "ids_cyc": set(inter["ids_cyc"]),
+                    "start": t,
+                    "end": t
+                })
+                updated.append(True)
+
+        # fermer celles non vues
+        new_active = []
+        for i, act in enumerate(active_events):
+            if i < len(updated) and updated[i]:
+                new_active.append(act)
+            else:
+                finished_events.append(act)
+
+        active_events = new_active
+
+    # fermer les restantes
+    finished_events.extend(active_events)
+
+    allowed_pairs = {
+        frozenset(["cyc_noise", "ped_cluster"]),
+        frozenset(["ped_cluster", "cyc_noise"]),
+        frozenset(["ped_cluster", "cyc_cluster"]),
+        frozenset(["cyc_cluster", "ped_cluster"]),
+        frozenset(["cyc_cluster", "ped_noise"]),
+        frozenset(["ped_noise", "cyc_cluster"]),
+        frozenset(["cyc_noise", "ped_noise"]),
+        frozenset(["ped_noise", "cyc_noise"])
+    }
+
+    filtered = []
+
+    for e in finished_events:
+        pair = frozenset([e["type_ped"], e["type_cyc"]])
+
+        if pair in allowed_pairs:
+            filtered.append(e)
+
+    return filtered
+
+def get_closest_points_with_ids(A_pts, B_pts, A_ids, B_ids):
+    min_dist = np.inf
+    best = None
+
+    for i, a in enumerate(A_pts):
+        for j, b in enumerate(B_pts):
+            d = np.linalg.norm(a - b)
+            if d < min_dist:
+                min_dist = d
+                best = (a, b, A_ids[i], B_ids[j])
+
+    return best  # (pA, pB, idA, idB)
+
+def compute_agent_velocity(df, agent_id, t, fps):
+    traj = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
+
+    if t not in traj[COL_TIME].values:
+        return None
+
+    idx = traj[traj[COL_TIME] == t].index[0]
+
+    if idx == traj.index.min():
+        return None
+
+    prev = traj.loc[idx - 1]
+
+    curr = traj.loc[idx]
+
+    dt_frames = curr[COL_TIME] - prev[COL_TIME]
+    dt = dt_frames / fps
+
+    if dt == 0:
+        return None
+
+    vx = (curr["x_m"] - prev["x_m"]) / dt
+    vy = (curr["y_m"] - prev["y_m"]) / dt
+
+    return np.array([vx, vy])
+
+
+def compute_velocity(df_agent):
+    df_agent = df_agent.sort_values(COL_TIME)
+
+    dx = np.diff(df_agent["x_m"])
+    dy = np.diff(df_agent["y_m"])
+    dt = np.diff(df_agent[COL_TIME])
+
+    speeds = np.hypot(dx, dy) / np.maximum(dt, 1e-6)
+    return np.mean(speeds) if len(speeds) > 0 else 0
+
+def compute_instant_velocity(df_agent, t):
+    """
+    vitesse instantanée à la frame t
+    """
+
+    g = df_agent[df_agent[COL_TIME].isin([t-1, t])].sort_values(COL_TIME)
+
+    if len(g) < 2:
+        return None
+
+    x0, y0 = g.iloc[0][["x_m", "y_m"]]
+    x1, y1 = g.iloc[1][["x_m", "y_m"]]
+
+    dt = g.iloc[1][COL_TIME] - g.iloc[0][COL_TIME]
+    if dt == 0:
+        return None
+
+    return np.hypot(x1 - x0, y1 - y0) / dt
+
+
+def compute_group_velocity(df, ids, t):
+    sub = df[(df[COL_ID].isin(ids)) & (df[COL_TIME] <= t)]
+
+    speeds = []
+    for aid, g in sub.groupby(COL_ID):
+        v = compute_velocity(g)
+        speeds.append(v)
+
+    return np.mean(speeds) if speeds else 0
+
+def compute_group_velocity_at_t(df, ids, t, fps):
+    speeds = []
+
+    for aid in ids:
+        v = compute_agent_velocity(df, aid, t, fps)
+        if v is not None:
+            speeds.append(np.linalg.norm(v))  # norme
+
+    if len(speeds) == 0:
+        return None
+    
+    return np.mean(speeds) if speeds else None
+
+
+def compute_group_relative_speed(df, ped_ids, cyc_ids, t, fps):
+    v_ped = compute_group_velocity_at_t(df, ped_ids, t, fps)
+    v_cyc = compute_group_velocity_at_t(df, cyc_ids, t, fps)
+
+    if v_ped is None or v_cyc is None:
+        return None
+
+    return abs(v_cyc - v_ped)
+
+
+def compute_group_diameter(points):
+    if len(points) < 2:
+        return 0
+    return np.max(cdist(points, points))
+
+
+def compute_group_density(points):
+    if len(points) < 3:
+        return 0
+
+    hull = ConvexHull(points)
+    area = hull.volume  # en 2D = aire
+
+    return len(points) / area if area > 0 else 0
+
+
+def compute_direction(df_agent):
+    df_agent = df_agent.sort_values(COL_TIME)
+
+    if len(df_agent) < 2:
+        return np.array([0, 0])
+
+    dx = df_agent["x_m"].iloc[-1] - df_agent["x_m"].iloc[0]
+    dy = df_agent["y_m"].iloc[-1] - df_agent["y_m"].iloc[0]
+
+    vec = np.array([dx, dy])
+    norm = np.linalg.norm(vec)
+
+    return vec / norm if norm > 0 else vec
+
+
+# def compute_group_direction_angle(df, ped_ids, cyc_ids, t):
+#     """
+#     Angle entre direction moyenne des deux groupes (en deg)
+#     """
+
+#     def group_direction(ids):
+#         frame = df[(df[COL_TIME] == t) & (df[COL_ID].isin(ids))]
+
+#         if len(frame) < 2:
+#             return None
+
+#         if "xVelocity" in frame.columns and "yVelocity" in frame.columns:
+#             vx = frame["xVelocity"].mean()
+#             vy = frame["yVelocity"].mean()
+#         else:
+#             # fallback : centroid displacement
+#             frame = frame.sort_values(COL_ID)
+
+#             pts = frame[["x_m", "y_m"]].values
+#             if len(pts) < 2:
+#                 return None
+
+#             vx = np.mean(np.diff(pts[:, 0]))
+#             vy = np.mean(np.diff(pts[:, 1]))
+
+#         norm = np.hypot(vx, vy)
+#         if norm == 0:
+#             return None
+
+#         return np.array([vx, vy]) / norm
+
+#     v_ped = group_direction(ped_ids)
+#     v_cyc = group_direction(cyc_ids)
+
+#     if v_ped is None or v_cyc is None:
+#         return None
+
+#     dot = np.clip(np.dot(v_ped, v_cyc), -1.0, 1.0)
+#     angle = np.arccos(dot)
+
+#     angle_deg = np.degrees(angle)
+
+#     return angle_deg
+
+def compute_group_direction_angle(df, ped_ids, cyc_ids, t):
+    """
+    Angle entre direction moyenne des deux groupes (en degrés)
+    basé sur le mouvement temporel (t-1 -> t)
+    """
+
+    def group_velocity(ids):
+        df_now = df[(df[COL_TIME] == t) & (df[COL_ID].isin(ids))]
+        df_prev = df[(df[COL_TIME] == t - 1) & (df[COL_ID].isin(ids))]
+
+        if len(df_now) == 0 or len(df_prev) == 0:
+            return None
+
+        # centroid à t
+        c_now = df_now[["x_m", "y_m"]].mean().values
+        c_prev = df_prev[["x_m", "y_m"]].mean().values
+
+        v = c_now - c_prev
+        norm = np.linalg.norm(v)
+
+        if norm == 0:
+            return None
+
+        return v / norm
+
+    v_ped = group_velocity(ped_ids)
+    v_cyc = group_velocity(cyc_ids)
+
+    if v_ped is None or v_cyc is None:
+        return None
+
+    dot = np.clip(np.dot(v_ped, v_cyc), -1.0, 1.0)
+    angle = np.degrees(np.arccos(dot))
+
+    return angle
+
+
+def angle_between(v1, v2):
+    dot = np.dot(v1, v2)
+    n = np.linalg.norm(v1) * np.linalg.norm(v2)
+
+    if n == 0:
+        return 0
+
+    return np.degrees(np.arccos(np.clip(dot / n, -1, 1)))
+
+
+def get_points_from_ids(frame_data, ids, cls_name):
+    data = frame_data[cls_name]
+    if data is None:
+        return None
+
+    points = []
+    for (pt, aid) in zip(data["points"], data["ids"]):
+        if aid in ids:
+            points.append(pt)
+
+    return np.array(points) if points else None
+
+
+def compute_interaction_features(event, history, df):
+    start = event["start"]
+    end = event["end"]
+
+    distances = []
+    hausdorffs = []
+    hausdorff_mods = []
+    # rel_speeds = []
+    rel_speeds_series = []
+    times = []
+    angles = []
+
+    diam_A = []
+    diam_B = []
+    dens_A = []
+    dens_B = []
+
+    for t in range(start, end + 1):
+
+        frame = history.get(t)
+        if frame is None:
+            continue
+
+        A_type = "cyc" if "cyc" in event["type_ped"] else "ped"
+        B_type = "cyc" if "cyc" in event["type_cyc"] else "ped"
+
+        A = get_points_from_ids(frame, event["ids_cyc"], A_type)
+        B = get_points_from_ids(frame, event["ids_ped"], B_type)
+
+        if A is None or B is None:
+            continue
+
+        # ===== DISTANCES =====
+        distances.append(min_distance(A, B))
+        hausdorffs.append(hausdorff_distance(A, B))
+        hausdorff_mods.append(modified_hausdorff(A, B))
+
+        # ===== VITESSE =====
+        vA = compute_group_velocity_at_t(df, event["ids_A"], t)
+        vB = compute_group_velocity_at_t(df, event["ids_B"], t)
+        # rel_speeds.append(abs(vA - vB))
+
+        if vA is not None and vB is not None:
+            rel_speeds_series.append(abs(vA - vB))
+            times.append(t)
+
+        # ===== DIAM / DENS =====
+        diam_A.append(compute_group_diameter(A))
+        diam_B.append(compute_group_diameter(B))
+
+        dens_A.append(compute_group_density(A))
+        dens_B.append(compute_group_density(B))
+
+        # ===== ANGLE =====
+        # dir_A = compute_direction(df[df[COL_ID].isin(event["ids_A"])])
+        dir_A = compute_group_direction_angle(df, event["ids_A"], event["ids_B"], t)
+        # vec_AB = relative_position(A, B)
+
+        # angles.append(angle_between(dir_A, vec_AB))
+        angles.append(dir_A)
+
+    return {
+        "distance": distances,
+        "hausdorff": hausdorffs,
+        "modified_hausdorff": hausdorff_mods,
+        "relative_speed_series": rel_speeds_series,
+        "diameter_A_series": diam_A,
+        "diameter_B_series": diam_B,
+        "density_A_series": dens_A,
+        "density_B_series": dens_B,
+        "direction_angle_series": angles
+    }
+
+
+def is_noise_only_interaction(event):
+    return (
+        "noise" in event["type_ped"]
+        and "noise" in event["type_cyc"]
+    )
+
+
+def get_entity(frame, ids, cls_name):
+    data = frame[cls_name]
+    if data is None:
+        return None, None
+
+    pts = []
+    valid_ids = []
+
+    for p, aid in zip(data["points"], data["ids"]):
+        if aid in ids:
+            pts.append(p)
+            valid_ids.append(aid)
+
+    return np.array(pts), set(valid_ids)
+
+
+def get_closest_points(A, B):
+    D = cdist(A, B)
+    i, j = np.unravel_index(np.argmin(D), D.shape)
+    return A[i], B[j], D[i, j]
+
+
+def get_cyclists_in_hull_for_interaction(interaction, hull_events):
+    t_start = interaction["start"]
+    t_end = interaction["end"]
+
+    cyc_ids = set(interaction["ids_cyc"])
+
+    relevant = []
+
+    for ev in hull_events:
+        t = ev["time_frame"]
+
+        if t_start <= t <= t_end:
+            # intersection des cyclistes
+            if any(c in cyc_ids for c in ev["cyclist_ids"]):
+                relevant.append(ev)
+
+    return relevant
+
+
+def get_split_events_for_interaction(interaction, split_events):
+    t_start = interaction["start"]
+    t_end = interaction["end"]
+
+    cyc_ids = set(interaction["ids_cyc"])
+
+    relevant = []
+
+    for ev in split_events:
+        t = ev["time"]
+
+        if t_start <= t <= t_end:
+            if ev["cyclist_involved"]:
+                # vérifier que c’est un cycliste de l’interaction
+                if any(c in cyc_ids for c in ev["cyclist_ids"]):
+                    relevant.append(ev)
+
+    return relevant

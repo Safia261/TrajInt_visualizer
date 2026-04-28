@@ -503,133 +503,133 @@ def classify_interactions_with_car_in_time_and_space(df, distance_threshold=5.0,
     return results
 
 
-def classify_direction_angle(angle):
-    if angle is None:
-        return "None"
+# def classify_direction_angle(angle):
+#     if angle is None:
+#         return "None"
 
-    if angle < 30:
-        return "SAME_DIRECTION"
-    elif angle < 75:
-        return "SLIGHT_CONVERGENCE"
-    elif angle < 105:
-        return "CROSSING" # interaction perpendiculaire
-    elif angle < 150:
-        return "STRONG_CONVERGENCE"
-    else:
-        return "OPPOSITE_DIRECTION"
+#     if angle < 30:
+#         return "SAME_DIRECTION"
+#     elif angle < 75:
+#         return "SLIGHT_DIVERGENCE"
+#     elif angle < 105:
+#         return "CROSSING" # interaction perpendiculaire
+#     elif angle < 150:
+#         return "STRONG_DIVERGENCE"
+#     else:
+#         return "OPPOSITE_DIRECTION"
     
-def classify_direction_angle_interaction(df, ped_id, cyc_id, times, angles):
-    interactions = compute_ped_cyc_interactions_with_time(df)
-    pair = tuple(sorted((ped_id, cyc_id)))
+# def classify_direction_angle_interaction(df, ped_id, cyc_id, times, angles):
+#     interactions = compute_ped_cyc_interactions_with_time(df)
+#     pair = tuple(sorted((ped_id, cyc_id)))
 
-    frames = interactions.get(pair, [])
-    if len(frames) == 0:
-        return {"label": "no interaction"}
+#     frames = interactions.get(pair, [])
+#     if len(frames) == 0:
+#         return {"label": "no interaction"}
 
-    intervals = frames_to_intervals(frames)
+#     intervals = frames_to_intervals(frames)
 
-    # ===== filtrage pendant interaction =====
-    mask = np.zeros_like(times, dtype=bool)
-    for start, end in intervals:
-        mask |= (times >= start) & (times <= end)
+#     # ===== filtrage pendant interaction =====
+#     mask = np.zeros_like(times, dtype=bool)
+#     for start, end in intervals:
+#         mask |= (times >= start) & (times <= end)
 
-    angles_inter = angles[mask]
+#     angles_inter = angles[mask]
 
-    if len(angles_inter) == 0:
-        return {"label": "UNKNOWN"}
+#     if len(angles_inter) == 0:
+#         return {"label": "UNKNOWN"}
 
-    # ===== classification point par point =====
-    angle_classes = [classify_direction_angle(a) for a in angles_inter]
+#     # ===== classification point par point =====
+#     angle_classes = [classify_direction_angle(a) for a in angles_inter]
 
-    # ===== compression de séquence =====
-    sequence = [angle_classes[0]]
-    for c in angle_classes[1:]:
-        if c != sequence[-1]:
-            sequence.append(c)
+#     # ===== compression de séquence =====
+#     sequence = [angle_classes[0]]
+#     for c in angle_classes[1:]:
+#         if c != sequence[-1]:
+#             sequence.append(c)
 
-    # priorité à la géométrie la plus critique
-    if "OPPOSITE_DIRECTION" in sequence:
-        label_main = "OPPOSITE_DIRECTION"
-    elif "STRONG_CONVERGENCE" in sequence:
-        label_main = "STRONG_CONVERGENCE"
-    elif "CROSSING" in sequence:
-        label_main = "CROSSING"
-    elif "SLIGHT_CONVERGENCE" in sequence:
-        label_main = "SLIGHT_CONVERGENCE"
-    else:
-        label_main = "SAME_DIRECTION"
+#     # priorité à la géométrie la plus critique
+#     if "OPPOSITE_DIRECTION" in sequence:
+#         label_main = "OPPOSITE_DIRECTION"
+#     elif "STRONG_CONVERGENCE" in sequence:
+#         label_main = "STRONG_CONVERGENCE"
+#     elif "CROSSING" in sequence:
+#         label_main = "CROSSING"
+#     elif "SLIGHT_CONVERGENCE" in sequence:
+#         label_main = "SLIGHT_CONVERGENCE"
+#     else:
+#         label_main = "SAME_DIRECTION"
 
-    return {
-        "label_main": label_main,
-        "sequence": sequence,
-        "angle_min": np.min(angles_inter),
-        "angle_median": np.median(angles_inter)
-    }
+#     return {
+#         "label_main": label_main,
+#         "sequence": sequence,
+#         "angle_min": np.min(angles_inter),
+#         "angle_median": np.median(angles_inter)
+#     }
 
 
-def classify_approach_angle(angle):
-    if angle is None:
-        return "UNKNOWN"
+# def classify_approach_angle(angle):
+#     if angle is None:
+#         return "UNKNOWN"
 
-    if angle < 30:
-        return "FRONTAL_APPROACH"
-    elif angle < 75:
-        return "OBLIQUE_APPROACH"
-    elif angle < 105:
-        return "CROSSING"
-    elif angle < 150:
-        return "OBLIQUE_DEPART"
-    else:
-        return "MOVING_AWAY"
+#     if angle < 30:
+#         return "FRONTAL_APPROACH"
+#     elif angle < 75:
+#         return "OBLIQUE_APPROACH"
+#     elif angle < 105:
+#         return "CROSSING" # latérale ou perpendiculaire normalement
+#     elif angle < 150:
+#         return "OBLIQUE_DEPART"
+#     else:
+#         return "MOVING_AWAY"
     
 
-def classify_approach_angle_interaction(df, ped_id, cyc_id, times, angles):
-    interactions = compute_ped_cyc_interactions_with_time(df)
-    pair = tuple(sorted((ped_id, cyc_id)))
+# def classify_approach_angle_interaction(df, ped_id, cyc_id, times, angles):
+#     interactions = compute_ped_cyc_interactions_with_time(df)
+#     pair = tuple(sorted((ped_id, cyc_id)))
 
-    frames = interactions.get(pair, [])
-    if len(frames) == 0:
-        return {"label": "no interaction"}
+#     frames = interactions.get(pair, [])
+#     if len(frames) == 0:
+#         return {"label": "no interaction"}
 
-    intervals = frames_to_intervals(frames)
+#     intervals = frames_to_intervals(frames)
 
-    # filtrage
-    mask = np.zeros_like(times, dtype=bool)
-    for start, end in intervals:
-        mask |= (times >= start) & (times <= end)
+#     # filtrage
+#     mask = np.zeros_like(times, dtype=bool)
+#     for start, end in intervals:
+#         mask |= (times >= start) & (times <= end)
 
-    angles_inter = angles[mask]
+#     angles_inter = angles[mask]
 
-    if len(angles_inter) == 0:
-        return {"label": "UNKNOWN"}
+#     if len(angles_inter) == 0:
+#         return {"label": "UNKNOWN"}
 
-    # classification point par point
-    angle_classes = [classify_approach_angle(a) for a in angles_inter]
+#     # classification point par point
+#     angle_classes = [classify_approach_angle(a) for a in angles_inter]
 
-    # compression
-    sequence = [angle_classes[0]]
-    for c in angle_classes[1:]:
-        if c != sequence[-1]:
-            sequence.append(c)
+#     # compression
+#     sequence = [angle_classes[0]]
+#     for c in angle_classes[1:]:
+#         if c != sequence[-1]:
+#             sequence.append(c)
     
-    # label_main = max(set(sequence), key=sequence.count)
+#     # label_main = max(set(sequence), key=sequence.count)
 
-    #label principal
-    if "FRONTAL_APPROACH" in sequence:
-        label_main = "FRONTAL_APPROACH"
-    elif "OBLIQUE_APPROACH" in sequence:
-        label_main = "OBLIQUE_APPROACH"
-    elif "CROSSING" in sequence:
-        label_main = "CROSSING"
-    else:
-        label_main = sequence[0]
+#     #label principal
+#     if "FRONTAL_APPROACH" in sequence:
+#         label_main = "FRONTAL_APPROACH"
+#     elif "OBLIQUE_APPROACH" in sequence:
+#         label_main = "OBLIQUE_APPROACH"
+#     elif "CROSSING" in sequence:
+#         label_main = "CROSSING"
+#     else:
+#         label_main = sequence[0]
 
-    return {
-        "label_main": label_main,
-        "sequence": sequence,
-        "angle_min": np.min(angles_inter),
-        "angle_median": np.median(angles_inter)
-    }
+#     return {
+#         "label_main": label_main,
+#         "sequence": sequence,
+#         "angle_min": np.min(angles_inter),
+#         "angle_median": np.median(angles_inter)
+#     }
 
 def classify_distance_interaction(times, distances, intervals):
     """
@@ -694,65 +694,65 @@ def classify_distance_interaction(times, distances, intervals):
     }
 
 
-def classify_relative_speed(v_rel):
-    # pour des vitesses en km/h
-    if v_rel is None:
-        return "UNKNOWN"
+# def classify_relative_speed(v_rel):
+#     # pour des vitesses en km/h
+#     if v_rel is None:
+#         return "UNKNOWN"
 
-    if v_rel < 3:
-        return "LOW"
-    elif v_rel < 15:
-        return "MODERATE"
-    elif v_rel < 20:
-        return "HIGH"
-    else:
-        return "VERY_HIGH"
+#     if v_rel < 3:
+#         return "LOW"
+#     elif v_rel < 15:
+#         return "MODERATE"
+#     elif v_rel < 20:
+#         return "HIGH"
+#     else:
+#         return "VERY_HIGH"
 
-def classify_relative_speed_interaction(
-    df,
-    ped_id,
-    cyc_id,
-    times,
-    v_rel
-):
-    # pour des vitesses en km/h
-    interactions = compute_ped_cyc_interactions_with_time(df)
-    pair = tuple(sorted((ped_id, cyc_id)))
+# def classify_relative_speed_interaction(
+#     df,
+#     ped_id,
+#     cyc_id,
+#     times,
+#     v_rel
+# ):
+#     # pour des vitesses en km/h
+#     interactions = compute_ped_cyc_interactions_with_time(df)
+#     pair = tuple(sorted((ped_id, cyc_id)))
 
-    frames = interactions.get(pair, [])
-    if len(frames) == 0:
-        return {"label": "NO_INTERACTION"}
+#     frames = interactions.get(pair, [])
+#     if len(frames) == 0:
+#         return {"label": "NO_INTERACTION"}
 
-    intervals = frames_to_intervals(frames)
+#     intervals = frames_to_intervals(frames)
 
-    # ===== filtrage =====
-    mask = np.zeros_like(times, dtype=bool)
-    for start, end in intervals:
-        mask |= (times >= start) & (times <= end)
+#     # ===== filtrage =====
+#     mask = np.zeros_like(times, dtype=bool)
+#     for start, end in intervals:
+#         mask |= (times >= start) & (times <= end)
 
-    v_inter = v_rel[mask]
+#     v_inter = v_rel[mask]
 
-    # enlever NaN / inf
-    v_inter = v_inter[np.isfinite(v_inter)]
+#     # enlever NaN / inf
+#     v_inter = v_inter[np.isfinite(v_inter)]
 
-    if len(v_inter) == 0:
-        return {"label": "UNKNOWN"}
+#     if len(v_inter) == 0:
+#         return {"label": "UNKNOWN"}
 
     
-    v_max = np.max(v_inter) # le moment le plus dangereux serait le moment où la vitesse est la plus élevée
-    v_mean = np.mean(v_inter)
+#     v_max = np.max(v_inter) # le moment le plus dangereux serait le moment où la vitesse est la plus élevée
+#     v_mean = np.mean(v_inter)
 
-    label_max = classify_relative_speed(v_max)
-    labels = [classify_relative_speed(v) for v in v_inter]
-    dominant = max(set(labels), key=labels.count)
+#     label_max = classify_relative_speed(v_max)
+#     labels = [classify_relative_speed(v) for v in v_inter]
+#     dominant = max(set(labels), key=labels.count)
 
-    return {
-        "label_main": dominant, # selon l'occurence des labels
-        "label_max": label_max, # selon la vitesse max
-        "v_max": v_max,
-        "v_mean": v_mean,
-        "labels": labels,
-    }
+#     return {
+#         "label_main": dominant, # selon l'occurence des labels
+#         "label_max": label_max, # selon la vitesse max
+#         "v_max": v_max,
+#         "v_mean": v_mean,
+#         "labels": labels,
+#     }
 
 
 # def classify_relative_motion(dx_rel, dy_rel, dx_pos, dy_pos): # même cjose que angle d'approche
@@ -780,22 +780,22 @@ def classify_relative_speed_interaction(
 #         return "LATERAL"
 
 
-def classify_pet(pet):
-    """
-    Classification du PET (en secondes). Permet d'évaluer le niveau de risque lors de l'interaction.
-    """
+# def classify_pet(pet):
+#     """
+#     Classification du PET (en secondes). Permet d'évaluer le niveau de risque lors de l'interaction.
+#     """
 
-    if pet is None:
-        return "None"
+#     if pet is None:
+#         return "None"
 
-    if pet < 1:
-        return "CRITICAL" # quasi-collision
-    elif pet < 2:
-        return "HIGH"
-    elif pet < 4:
-        return "MEDIUM"
-    else:
-        return "LOW"
+#     if pet < 1:
+#         return "CRITICAL" # quasi-collision
+#     elif pet < 2:
+#         return "HIGH"
+#     elif pet < 4:
+#         return "MEDIUM"
+#     else:
+#         return "LOW"
 
 
 def classify_ttc(ttc):
@@ -815,7 +815,7 @@ def classify_ttc(ttc):
         return "LOW"
 
 
-def classify_global_interaction(pet, ttc, approach_result, direction_result, speed_result):
+def classify_pair_interaction(pet, ttc, approach_result, direction_result, speed_result):
     """
     Combine tous les indicateurs pour classifier une interaction.
 
@@ -898,61 +898,1120 @@ def classify_global_interaction(pet, ttc, approach_result, direction_result, spe
 
 # CAS MULTI-AGENT (avec des groupes d'usagers) (1 cycliste VS 1 groupe de piétons, Groupe de cyclistes VS groupe de piétons)
 
-def hausdorff_distance(A, B):
+# def hausdorff_distance(A, B):
+#     """
+#     A, B: arrays de taille (N,2) et (M,2) respectivement. 
+#     """
+
+#     def directed(A, B):
+#         dists = []
+#         for a in A:
+#             d = np.min(np.linalg.norm(B - a, axis=1))
+#             dists.append(d)
+#         return np.max(dists)
+
+#     return max(directed(A, B), directed(B, A))
+
+# def min_distance(A, B): # pour prendre la dist min entre 2 groupes de points (la distance de Hausdorff)
+#     min_d = float("inf")
+#     for a in A:
+#         d = np.min(np.linalg.norm(B - a, axis=1))
+#         if d < min_d:
+#             min_d = d
+#     return min_d
+
+
+# def compute_group_distances_over_time(df):
+#     results = []
+
+#     for t in df[COL_TIME].unique():
+#         frame = df[df[COL_TIME] == t]
+
+#         P = frame[frame[COL_CLASS] == 1][["x_m", "y_m"]].values
+#         C = frame[frame[COL_CLASS] == 2][["x_m", "y_m"]].values
+
+#         if len(P) == 0 or len(C) == 0:
+#             continue
+
+#         h = hausdorff_distance(P, C)
+#         dmin = min_distance(P, C)
+
+#         results.append((t, h, dmin))
+
+#     return np.array(results)
+
+
+# def plot_group_distances(results):
+#     times = results[:,0]
+#     haus = results[:,1]
+#     dmin = results[:,2]
+
+#     plt.figure(figsize=(10,5))
+#     plt.plot(times, haus, label="Hausdorff distance")
+#     plt.plot(times, dmin, label="Min distance", linestyle="--")
+
+#     plt.xlabel("Temps")
+#     plt.ylabel("Distance (m)")
+#     plt.title("Distances groupe piétons - groupe cyclistes")
+#     plt.legend()
+#     plt.grid()
+#     plt.show()
+
+
+def classify_interactions(splits, intrusions, time_window=5):
     """
-    A, B: arrays de taille (N,2) et (M,2) respectivement. 
+    Combine les événements pour classifier les interactions.
+
+    Params:
+        splits: liste de dicts (events split)
+        intrusions: liste de dicts (events hull)
+        time_window: tolérance temporelle (frames)
+
+    Returns:
+        interactions: liste de dicts
     """
 
-    def directed(A, B):
-        dists = []
-        for a in A:
-            d = np.min(np.linalg.norm(B - a, axis=1))
-            dists.append(d)
-        return np.max(dists)
+    interactions = []
 
-    return max(directed(A, B), directed(B, A))
+    for split in splits:
+        t_split = split["time"]
+        cyc_ids = set(split["cyclists"])
 
-def min_distance(A, B): # pour prendre la dist min entre 2 groupes de points (la distance de Hausdorff)
-    min_d = float("inf")
-    for a in A:
-        d = np.min(np.linalg.norm(B - a, axis=1))
-        if d < min_d:
-            min_d = d
-    return min_d
+        # chercher intrusion proche dans le temps
+        related_intrusions = [
+            intr for intr in intrusions
+            if abs(intr["time"] - t_split) <= time_window
+            and len(cyc_ids.intersection(intr["cyclists"])) > 0
+        ]
+
+        if related_intrusions:
+            interaction_type = "STRONG_DISRUPTION"
+        else:
+            interaction_type = "GROUP_AVOIDANCE"
+
+        interactions.append({
+            "time": t_split,
+            "type": interaction_type,
+            "cyclists": list(cyc_ids),
+            "details": split
+        })
+
+    # traiter intrusions sans split
+    for intr in intrusions:
+        t_intr = intr["time"]
+        cyc_ids = set(intr["cyclists"])
+
+        related_splits = [
+            sp for sp in splits
+            if abs(sp["time"] - t_intr) <= time_window
+            and len(cyc_ids.intersection(sp["cyclists"])) > 0
+        ]
+
+        if not related_splits:
+            interactions.append({
+                "time": t_intr,
+                "type": "INTRUSION_WITHOUT_SPLIT",
+                "cyclists": list(cyc_ids),
+                "details": intr
+            })
+
+    return interactions
 
 
-def compute_group_distances_over_time(df):
-    results = []
+def summarize_interactions(interactions):
+    summary = {}
 
-    for t in df[COL_TIME].unique():
-        frame = df[df[COL_TIME] == t]
+    for inter in interactions:
+        t = inter["type"]
+        summary[t] = summary.get(t, 0) + 1
 
-        P = frame[frame[COL_CLASS] == 1][["x_m", "y_m"]].values
-        C = frame[frame[COL_CLASS] == 2][["x_m", "y_m"]].values
+    print("\n===== INTERACTION SUMMARY =====")
+    for k, v in summary.items():
+        print(f"{k} : {v}")
 
-        if len(P) == 0 or len(C) == 0:
+    return summary
+
+
+def group_interactions(interactions, max_gap=5):
+    grouped = []
+    current = None
+
+    for inter in sorted(interactions, key=lambda x: x["time"]):
+        if current is None:
+            current = inter
+            current["end_time"] = inter["time"]
             continue
 
-        h = hausdorff_distance(P, C)
-        dmin = min_distance(P, C)
+        if inter["time"] - current["end_time"] <= max_gap and inter["type"] == current["type"]:
+            current["end_time"] = inter["time"]
+        else:
+            grouped.append(current)
+            current = inter
+            current["end_time"] = inter["time"]
 
-        results.append((t, h, dmin))
+    if current:
+        grouped.append(current)
 
-    return np.array(results)
+    return grouped
 
 
-def plot_group_distances(results):
-    times = results[:,0]
-    haus = results[:,1]
-    dmin = results[:,2]
 
-    plt.figure(figsize=(10,5))
-    plt.plot(times, haus, label="Hausdorff distance")
-    plt.plot(times, dmin, label="Min distance", linestyle="--")
 
-    plt.xlabel("Temps")
-    plt.ylabel("Distance (m)")
-    plt.title("Distances groupe piétons - groupe cyclistes")
-    plt.legend()
-    plt.grid()
-    plt.show()
+def compute_individual_interaction_features(event, df, fps=None, plot=False):
+    ids_A = list(event["ids_ped"])
+    ids_B = list(event["ids_cyc"])
+
+    start = event["start"]
+    end = event["end"]
+
+    if len(ids_A) != 1 or len(ids_B) != 1:
+        return None  # par sécurité
+
+    id_A = ids_A[0]
+    id_B = ids_B[0]
+
+    times, distances = compute_distance_series(df, id_A, id_B)
+
+    t_dir, angles_dir = compute_direction_angle_velocity_based(df, id_A, id_B, fps, plot=plot)
+    angles_dir_i = None
+    if t_dir is not None:
+        mask_dir = (t_dir >= start) & (t_dir <= end)
+        angles_dir_i = angles_dir[mask_dir]
+
+    t_app, angles_app = compute_approach_angle(df, id_A, id_B, fps, plot=plot)
+    angles_app_i = None
+    if t_app is not None:
+        mask_app = (t_app >= start) & (t_app <= end)
+        angles_app_i = angles_app[mask_app]
+
+    t_rel, _, rel_speeds_kmh, _, _ = compute_relative_speed(df, id_A, id_B, fps, plot=plot)
+    rel_speeds_kmh_i = None
+    if t_rel is not None:
+        mask_rel = (t_rel >= start) & (t_rel <= end)
+        rel_speeds_kmh_i = rel_speeds_kmh[mask_rel]
+
+    _, dx, dy, _ = compute_relative_position_series(df, id_A, id_B)
+
+    mask = np.zeros_like(times, dtype=bool)
+    mask |= (times >= start) & (times <= end)
+
+    ped_df = slice_interaction(df, [id_A], start, end)
+    cyc_df = slice_interaction(df, [id_B], start, end)
+
+    reactive_agent, stable_agent = detect_reactive_agent(df, ped_df, cyc_df)
+
+    if reactive_agent == "ped":
+        ra = reactive_agent, id_A
+        sa = stable_agent, id_B
+    else:
+        ra = reactive_agent, id_B
+        sa = stable_agent, id_A
+
+    return {
+        "distances": distances[mask],
+        "direction_angle_series": angles_dir_i,
+        "approach_angle_series": angles_app_i,
+        "relative_speed_series": rel_speeds_kmh_i,
+        "relative_position_series": np.column_stack((dx[mask], dy[mask])),
+        "PET": compute_pet(df, id_A, id_B, fps, plot=plot),
+        "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
+        "reactive_agent": ra,
+        "stable_agent": sa
+    }
+
+def slice_interaction(df, ids, t_start, t_end):
+    return df[
+        (df[COL_ID].isin(ids)) &
+        (df[COL_TIME] >= t_start) &
+        (df[COL_TIME] <= t_end)
+    ]
+
+def compute_group_interaction_features(event, history, df, split_events, hull_events, fps=None, plot=False):
+
+    times = []
+
+    start = event["start"]
+    end = event["end"]
+
+    distances = []
+    hausdorffs = []
+    hausdorff_mods = []
+
+    rel_positions = []
+    rel_speeds = []
+    direction_angles = []
+
+    densities_A = []
+    densities_B = []
+
+    in_hull_flags = []
+    split_flags = []
+
+    for t in range(start, end + 1):
+        times.append(t)
+
+        frame = history.get(t)
+        if frame is None:
+            continue
+
+        A_type = "ped" if "ped" in event["type_ped"] else "cyc"
+        B_type = "cyc" if "cyc" in event["type_cyc"] else "ped"
+
+        A, ids_A = get_entity(frame, event["ids_ped"], A_type)
+        B, ids_B = get_entity(frame, event["ids_cyc"], B_type)
+
+        if A is None or B is None or len(A) == 0 or len(B) == 0:
+            continue
+
+        # ===== DISTANCES =====
+        pA, pB, dmin = get_closest_points(A, B)
+        distances.append(dmin)
+
+        hausdorffs.append(hausdorff_distance(A, B))
+        hausdorff_mods.append(modified_hausdorff(A, B))
+
+        # ===== POSITION RELATIVE =====
+        rel_positions.append(pB - pA)
+
+        # ===== VITESSE RELATIVE (au point de distance min) =====
+        # prendre les agents correspondants
+        # aid_A = list(ids_A)[0]
+        # aid_B = list(ids_B)[0]
+
+        # vA = compute_group_velocity_at_t(df, ids_A, t, fps)
+        # vB = compute_group_velocity_at_t(df, ids_B, t, fps)
+
+        # if vA is not None and vB is not None:
+        #     rel_speeds.append(abs(vA - vB))
+
+        # pA, pB, idA, idB = get_closest_points_with_ids(A, B, list(ids_A), list(ids_B))
+
+        # vA = compute_agent_velocity(df, idA, t, fps)
+        # vB = compute_agent_velocity(df, idB, t, fps)
+
+        # if vA is not None and vB is not None:
+        #     v_rel = np.linalg.norm(vA - vB)  # en m/s
+        #     rel_speeds.append(v_rel)
+
+        rel_speeds.append(compute_group_relative_speed(df, ids_A, ids_B, t, fps))
+
+        # ===== ANGLE =====
+        dir_A = compute_group_direction_angle(df, ids_A, ids_B, t)
+        # vec_AB = pB - pA
+
+        direction_angles.append(dir_A)
+
+        # ===== DENSITÉ =====
+        densities_A.append(compute_group_density(A))
+        densities_B.append(compute_group_density(B))
+
+        # # ===== CONVEX HULL =====
+        hull_events_inter = get_cyclists_in_hull_for_interaction(event, hull_events)
+        split_events_inter = get_split_events_for_interaction(event, split_events)
+
+    features= {
+        "time": times,
+        "distances": distances,
+        "hausdorff": hausdorffs,
+        "modified_hausdorff": hausdorff_mods,
+
+        "relative_position_series": rel_positions,
+        "relative_speed_series": np.array(rel_speeds) * 3.6, # en km/h
+        "direction_angle_series": direction_angles,
+
+        "density_A_series": densities_A,
+        "density_B_series": densities_B,
+
+        "cyclist_in_hull": len(hull_events_inter) > 0,
+        "cyclist_in_hull_events": hull_events_inter,
+
+        "cluster_split": len(split_events_inter) > 0,
+        "cluster_split_events": split_events_inter
+    }
+
+    if plot:
+        plot_group_interaction_features(features, fps)
+
+    return features
+
+# {
+#         "time": times,
+#         "min_distance": np.min(distances) if distances else None,
+#         "hausdorff": np.max(hausdorffs) if hausdorffs else None,
+#         "modified_hausdorff": np.mean(hausdorff_mods) if hausdorff_mods else None,
+
+#         "relative_position_series": rel_positions,
+#         "relative_speed_series": rel_speeds,
+#         "direction_angle_series": direction_angles,
+
+#         "density_A_mean": np.mean(densities_A) if densities_A else None,
+#         "density_B_mean": np.mean(densities_B) if densities_B else None,
+
+#         "cyclist_in_hull": len(hull_events_inter) > 0,
+#         "cyclist_in_hull_events": hull_events_inter,
+
+#         "cluster_split": len(split_events_inter) > 0,
+#         "cluster_split_events":split_events_inter
+#     }
+
+def plot_group_interaction_features(features, fps):
+    t = np.array(features["time"]) / fps
+
+    def plot_series(y, title, ylabel):
+        if y is None or len(y) == 0:
+            return
+
+        y = np.array(y)
+        tt = t[:len(y)]  # alignement simple
+
+        plt.figure(figsize=(8, 4))
+        plt.plot(tt, y)
+        plt.title(title)
+        plt.xlabel("Temps (s)")
+        plt.ylabel(ylabel)
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+    
+
+    plot_series(features.get("distances"), "Minimum Distance", "Distance (m)")
+
+    plot_series(features.get("hausdorff"), "Hausdorff Distance", "Distance (m)")
+
+    plot_series(features.get("modified_hausdorff"), "Modified Hausdorff Distance", "Distance (m)")
+
+
+    plot_series(features.get("relative_speed_series"), "Relative Speed", "Speed (km/h)")
+
+    plot_series(features.get("direction_angle_series"), "Direction Angle", "Angle (deg)")
+
+
+    plot_series(features.get("density_A_series"), "Density Group Pedestrians", "Density")
+
+    plot_series(features.get("density_B_series"), "Density Group Cyclists", "Density")
+
+    if features.get("cluster_split_events"):
+        plt.figure(figsize=(8, 2))
+        for e in features["cluster_split_events"]:
+            t_event = e["time"] / fps if fps else e["time"]
+            plt.axvline(t_event, color="red", linestyle="--")
+        plt.title("Cluster Split Events")
+        plt.xlabel("Temps (s)")
+        plt.yticks([])
+        plt.grid(True)
+        plt.show()
+
+    if features.get("cyclist_in_hull_events"):
+        plt.figure(figsize=(8, 2))
+        dt = 1 / fps if fps else 1
+        for e in features["cyclist_in_hull_events"]:
+            t_event = e["time_frame"] / fps if fps else e["time_frame"]
+            plt.axvspan(
+                t_event - dt/2,
+                t_event + dt/2,
+                color="green",
+                alpha=0.3
+            )
+            # plt.axvline(t_event, color="green", linestyle=":")
+        plt.title("Cyclist in Hull Events")
+        plt.xlabel("Temps (s)")
+        plt.yticks([])
+        plt.grid(True)
+        plt.show()
+
+
+def compute_one_interaction_features(df, history, interaction, fps=None, plot=False):
+    split_events = detect_split_events_with_cyclists(history)
+    hull_events = detect_cyclists_in_hulls(history)
+
+    if is_noise_only_interaction(interaction):
+        return compute_individual_interaction_features(interaction, df, fps=fps, plot=plot)
+    else:
+        return compute_group_interaction_features(interaction, history, df, split_events, hull_events, fps=fps, plot=plot)
+
+
+def compute_all_interactions_features(df, history, interactions, fps=None, plot=False):
+
+    split_events = detect_split_events_with_cyclists(history)
+    hull_events = detect_cyclists_in_hulls(history)
+
+    all_features = []
+
+    for inter in interactions:
+
+        t_start = inter["start"]
+        t_end = inter["end"]
+        cyc_ids = list(inter["cyc_ids"])
+        ped_ids = list(inter["ped_ids"])
+        inter_type = inter["type"]
+
+        is_noise_noise = is_noise_only_interaction(inter)
+
+        if is_noise_noise:
+            f = compute_individual_interaction_features(inter, df, fps=fps, plot=plot)
+        else:
+            f = compute_group_interaction_features(inter, history, df, split_events, hull_events, fps=fps, plot=plot)
+        
+        all_features.append(f)
+
+    return all_features
+
+
+
+
+
+# def is_group_interaction(interaction):
+#     """
+#     Détermine si interaction implique un cluster
+#     """
+#     return (
+#         "cluster" in interaction["type_ped"]
+#         and "cluster" in interaction["type_cyc"]
+#     )
+
+
+def classify_one_interaction(df, history, inter, fps):
+    """
+    Classifie une interaction à partir des features.
+
+    Parameters
+    ----------
+    features : dict
+    is_group : bool
+
+    Returns
+    -------
+    str : label de l'interaction
+    """
+    features = compute_one_interaction_features(df, history, inter, fps=fps)
+    # is_group = is_group_interaction(inter)
+
+    label = {}
+
+    type_A = inter["type_ped"]
+    type_B = inter["type_cyc"]
+
+    if "noise" in type_A and "noise" in type_B:
+        label = classify_individual_interaction(features)
+    
+    else: 
+        label = classify_group_interaction(features)
+    
+    return {"interaction": inter,
+            "features": features,
+            "label": label}
+
+
+def classify_all_interactions(df, history, interactions, fps):
+    """
+    Classifie toutes les interactions d'un recording.
+    """
+
+    results = []
+
+    for inter in interactions:
+
+        res = classify_one_interaction(df, history, inter, fps)
+
+        results.append(res)
+    
+    return results
+
+
+
+# def classify_individual_interaction(features):
+#     """
+#     Classification pour noise-noise (interaction paire)
+#     """
+
+#     d = features.get("min_distance")
+#     angle = features.get("direction_angle")
+#     approach = features.get("approach_angle")
+#     rel_speed = features.get("relative_speed")
+#     pet = features.get("PET")
+#     ttc = features.get("ttc_min")
+
+#     if d is None:
+#         return "unknown"
+
+#     # Pas interaction
+#     if d > 5:
+#         return "no_interaction"
+
+#     # Head-on
+#     if angle is not None and angle > 150:
+#         if rel_speed is not None and rel_speed > 1.5:
+#             return "head_on"
+
+#     # Crossing
+#     if angle is not None and 60 < angle < 120:
+#         return "crossing"
+
+#     # Overtaking
+#     if angle is not None and angle < 30:
+#         if rel_speed is not None and rel_speed > 0.5:
+#             return "overtaking"
+
+#     # Following
+#     if angle is not None and angle < 30:
+#         if rel_speed is not None and rel_speed < 0.5:
+#             return "following"
+
+#     # Avoidance (basé sur TTC)
+#     if ttc is not None and ttc < 2:
+#         return "avoidance"
+
+#     return "interaction_other"
+
+
+
+# def classify_group_interaction(features):
+#     """
+#     Classification pour interactions impliquant clusters
+#     """
+
+#     d_min = np.nanmin(features.get("distances", [np.nan]))
+#     angles = features.get("direction_angle_series", [])
+#     speeds = features.get("relative_speed_series", [])
+#     densities_A = features.get("density_A_series", [])
+#     densities_B = features.get("density_B_series", [])
+
+#     in_hull = features.get("cyclist_in_hull", False)
+#     split = features.get("cluster_split", False)
+
+#     # Nettoyage
+#     angles = np.array([a for a in angles if a is not None])
+#     speeds = np.array([s for s in speeds if s is not None])
+
+#     mean_angle = np.nanmean(angles) if len(angles) > 0 else None
+#     mean_speed = np.nanmean(speeds) if len(speeds) > 0 else None
+
+#     if d_min is None or np.isnan(d_min):
+#         return "unknown"
+
+#     # Pas interaction
+#     if d_min > 5:
+#         return "no_interaction"
+
+#     # SPLIT = priorité max
+#     if split:
+#         return "group_split"
+
+#     # PÉNÉTRATION (fort signal)
+#     if in_hull:
+#         if mean_speed is not None and mean_speed < 2:
+#             return "penetration"
+#         else:
+#             return "cross_group"
+
+#     # Crossing
+#     if mean_angle is not None and 60 < mean_angle < 120:
+#         return "cross_group"
+
+#     # Bypass (contournement)
+#     if mean_angle is not None and mean_angle > 120:
+#         return "bypass_group"
+
+#     # Approach
+#     if mean_speed is not None and mean_speed > 1.5:
+#         return "approach_group"
+
+#     # Avoidance
+#     if mean_speed is not None and mean_speed < 0.5:
+#         return "group_avoidance"
+
+#     return "group_interaction_other"
+
+
+
+
+def classify_pet(pet):
+    """
+    Classification du PET (en secondes). Permet d'évaluer le niveau de risque lors de l'interaction.
+    """
+
+    if pet is None:
+        return "None"
+
+    if pet < 1:
+        return "CRITICAL" # quasi-collision
+    elif pet < 2:
+        return "HIGH"
+    elif pet < 4:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
+# def clean_series(values):
+#     values = np.array(values)
+#     return values[np.isfinite(values)]
+
+def clean_series(values):
+    cleaned = []
+
+    for v in values:
+        if v is None:
+            continue
+
+        try:
+            v = float(v)
+            if np.isfinite(v):
+                cleaned.append(v)
+        except:
+            continue
+
+    return np.array(cleaned)
+
+
+def compress_sequence(seq):
+    if len(seq) == 0:
+        return []
+
+    compressed = [seq[0]]
+    for x in seq[1:]:
+        if x != compressed[-1]:
+            compressed.append(x)
+    return compressed
+
+
+def classify_distance_series(distances):
+
+    d = clean_series(distances)
+
+    if len(d) == 0:
+        return {"label_main": "UNKNOWN"}
+
+    # discrétisation
+    def label_dist(x):
+        if x < 1.5:
+            return "VERY_CLOSE"
+        elif x < 3:
+            return "CLOSE"
+        elif x < 5:
+            return "PRETTY_CLOSE"
+        else:
+            return "FAR"
+
+    labels = [label_dist(x) for x in d]
+    seq = compress_sequence(labels)
+
+    # pattern
+    if "VERY_CLOSE" in seq:
+        label = "CRITICAL_PROXIMITY"
+    elif "CLOSE" in seq:
+        label = "CLOSE_INTERACTION"
+    elif seq == ["FAR"]:
+        label = "FAR_INTERACTION"
+    else:
+        label = "MODERATE_INTERACTION"
+
+    return {
+        "label_main": label,
+        "sequence": seq,
+        "min": float(np.min(d)),
+        "mean": float(np.mean(d))
+    }
+
+
+def classify_direction_angle_series(angles):
+
+    a = clean_series(angles)
+
+    if len(a) == 0:
+        return {"label_main": "UNKNOWN"}
+
+    def label_angle(x):
+        if x < 30:
+            return "SAME_DIRECTION"
+        elif x < 75:
+            return "SLIGHT_DIVERGENCE"
+        elif x < 120:
+            return "CROSSING" # interaction perpendiculaire
+        elif x < 160:
+            return "STRONG_DIVERGENCE"
+        else:
+            return "OPPOSITE_DIRECTION"
+
+    labels = [label_angle(x) for x in a]
+    seq = compress_sequence(labels)
+
+    # pattern temporel
+    if "SAME_DIRECTION" in seq:
+        label = "SAME_DIRECTION"
+    elif "OPPOSITE_DIRECTION" in seq:
+        label = "OPPOSITE_DIRECTION"
+    elif "CROSSING" in seq:
+        label = "CROSSING"
+    else:
+        label = "DIVERGING"
+
+    return {
+        "label_main": label,
+        "sequence": seq,
+        "median": float(np.median(a))
+    }
+
+
+def classify_approach_angle_series(angles):
+
+    a = clean_series(angles)
+
+    if len(a) == 0:
+        return {"label_main": "UNKNOWN"}
+
+    def label(x):
+        if x < 30:
+            return "FRONTAL_APPROACH" # rapprochement
+        elif x < 75:
+            return "OBLIQUE_APPROACH" # rapprochement en diagonal (vers le piéton)
+        elif x < 105:
+            return "CROSSING" # interaction perpendiculaire
+        elif x < 150:
+            return "OBLIQUE_DEPART" # éloignement en diagonal
+        else:
+            return "MOVING_AWAY" # éloignement
+
+    labels = [label(x) for x in a]
+    seq = compress_sequence(labels)
+
+    # pattern clé
+    if seq == ["FRONTAL_APPROACH", "CROSSING", "MOVING_AWAY"] or seq == ["FRONTAL_APPROACH", "OBLIQUE_APPROACH", "CROSSING", "OBLIQUE_DEPART", "MOVING_AWAY"] or seq == ["OBLIQUE_APPROACH", "CROSSING", "OBLIQUE_DEPART"]:
+        label_main = "AVOIDANCE" # si dans des directions opposées, mais OVERTAKING (dépassement) si même direction
+
+    elif "FRONTAL_APPROACH" in seq and "MOVING_AWAY" in seq:
+        label_main = "APPROACH_AND_ESCAPE"
+
+    elif "CROSSING" in seq:
+        label_main = "CROSSING"
+    
+    elif "FRONTAL_APPROACH" in seq:
+        label_main = "FRONTAL_APPROACH"
+
+    elif "MOVING_AWAY" in seq or "OBLIQUE_DEPART" in seq:
+        label_main = "MOVING_AWAY" # éloignement / évitement
+    
+    elif "OBLIQUE_APPROACH" in seq:
+        label_main = "OBLIQUE_APPROACH"
+
+    return {
+        "label_main": label_main,
+        "sequence": seq,
+        "min": float(np.min(a)),
+        "median": float(np.median(a))
+    }
+
+
+
+def classify_relative_speed_series(speeds):
+
+    v = clean_series(speeds)
+
+    if len(v) == 0:
+        return {"label_main": "UNKNOWN"}
+
+    def label(x):
+        if x < 3:
+            return "LOW"
+        elif x < 15:
+            return "MODERATE"
+        elif x < 20:
+            return "HIGH"
+        else:
+            return "VERY_HIGH"
+
+    labels = [label(x) for x in v]
+    seq = compress_sequence(labels)
+
+    if "VERY_HIGH" in seq:
+        main = "VERY_DYNAMIC"
+    elif "HIGH" in seq:
+        main = "DYNAMIC"
+    else:
+        main = "LOW_DYNAMIC"
+
+    return {
+        "label_main": main,
+        "sequence": seq,
+        "v_max": float(np.max(v)),
+        "v_mean": float(np.mean(v))
+    }
+
+
+
+def classify_relative_position_series(rel_positions):
+
+    if len(rel_positions) == 0:
+        return {"label_main": "UNKNOWN"}
+
+    angles = []
+
+    for vec in rel_positions:
+        angle = np.degrees(np.arctan2(vec[1], vec[0]))
+        angles.append(angle)
+
+    angles = np.array(angles)
+
+    # simplification
+    front = np.sum((angles > -45) & (angles < 45))
+    side = np.sum((angles >= 45) & (angles <= 135))
+    back = np.sum((angles > 135) | (angles < -135))
+
+    if front > side and front > back:
+        label = "FRONT_INTERACTION"
+    elif side > front and side > back:
+        label = "SIDE_INTERACTION"
+    else:
+        label = "REAR_INTERACTION"
+
+    return {
+        "label_main": label,
+        "angles": angles.tolist()
+    }
+
+
+def classify_individual_interaction(features):
+
+    dist_res = classify_distance_series(features["distances"])
+
+    dir_res = classify_direction_angle_series(features["direction_angle_series"])
+
+    approach_res = classify_approach_angle_series(features["approach_angle_series"])
+
+    speed_res = classify_relative_speed_series(features["relative_speed_series"])
+
+    pos_res = classify_relative_position_series(features["relative_position_series"])
+
+    pet_res = classify_pet(features["PET"])
+
+    # ===== logique finale =====
+
+    print("DIRECTION ANGLE :", dir_res["label_main"])
+
+    if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
+        if dir_res["label_main"] == "SAME_DIRECTION":
+            interaction = "OVERTAKING"
+        elif dir_res["label_main"] == "OPPOSITE_DIRECTION":
+            interaction = "AVOIDANCE"
+        elif dir_res["label_main"] == "CROSSING":
+            interaction = "CROSSING"
+    
+    elif approach_res["label_main"] == "CROSSING":
+        if dir_res["label_main"] in ["CROSSING", "DIVERGING"]:
+            interaction = "CROSSING"
+
+    elif approach_res["label_main"] == "FRONTAL_APPROACH":
+        if dir_res["label_main"] == "SAME_DIRECTION":
+            interaction = "FOLLOWING"
+        elif dir_res["label_main"] == "OPPOSITE_DIRECTION":
+            interaction = "AVOIDANCE"
+        elif dir_res["label_main"] == "CROSSING":
+            interaction = "CROSSING"
+            if pet_res == "CRITICAL" or (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
+                interaction = "CLOSE_COLLISION"
+            elif pet_res == "MEDIUM" or pet_res == "LOW":
+                if speed_res["label_main"] == "DYNAMIC" or speed_res["label_main"] == "LOW_DYNAMIC":
+                    interaction = "GIVE_WAY"
+    
+    elif approach_res["label_main"] == "MOVING_AWAY":
+        interaction = "MOVING_AWAY" # éloignement / évitement
+    
+    elif approach_res["label_main"] == "OBLIQUE_APPROACH":
+        interaction = "OBLIQUE_APPROACH"
+    
+    else:
+        interaction = "UNDEFINED"
+
+    score = 0
+
+    if pet_res == "CRITICAL":
+        score += 3
+    elif pet_res == "HIGH":
+        score += 2
+    elif pet_res == "MEDIUM":
+        score += 1
+    
+
+    if dist_res["label_main"] == "CRITICAL_PROXIMITY":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 3
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 2
+        elif speed_res["label_main"] == "LOW_DYNAMIC":
+            score += 1
+    elif dist_res["label_main"] == "CLOSE_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 3
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 2
+    elif dist_res["label_main"] == "MODERATE_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 2
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 1
+    elif dist_res["label_main"] == "FAR_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 1
+    
+
+    if score >= 5:
+        risk = "CRITICAL"
+    elif score >= 3:
+        risk = "HIGH"
+    elif score >= 2:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
+
+    return {
+        "interaction_type": interaction,
+        "direction": dir_res,
+        "approach": approach_res,
+        "position": pos_res,
+        "distance": dist_res,
+        "speed": speed_res,
+        "pet": pet_res,
+        "risk": risk,
+        "risk_score": score
+    }
+
+
+
+def classify_group_interaction(features):
+    """
+    features attendu :
+    {
+        "distances": [],
+        "relative_position_series": [],
+        "direction_angle_series": [],
+        "relative_speed_series": [],
+        "cyclist_in_hull": bool,
+        "cluster_split": bool
+    }
+
+    noise_type = "cyc"
+    """
+
+    dist_res = classify_distance_series(features["distances"])
+    speed_res = classify_relative_speed_series(features["relative_speed_series"])
+
+    direction_res = classify_direction_angle_series(features["direction_angle_series"])
+    pos_res = classify_relative_position_series(features["relative_position_series"])
+
+    in_hull = features["cyclist_in_hull"]
+    split = features["cluster_split"]
+
+    # ===== TYPE =====
+
+    # pénétration dans groupe
+    if in_hull and split:
+        interaction = "GROUP_PENETRATION_AND_SPLIT" # faufilement du cycliste puis split du groupe
+
+    elif in_hull and not split:
+        interaction = "GROUP_PENETRATION" # faufilement du cycliste
+    
+    # cassure du groupe
+    elif not in_hull and split:
+        interaction = "GROUP_SPLIT"
+
+    # dépassement
+    elif (direction_res["label_main"] == "SAME_DIRECTION" or direction_res["label_main"] == "OPPOSITE_DIRECTION") and pos_res["label_main"] == "SIDE_INTERACTION" and (speed_res["label_main"] == "VERY_DYNAMIC" or speed_res["label_main"] == "DYNAMIC"):
+        interaction = "OVERTAKING_GROUP"
+
+    # contournement
+    elif pos_res["label_main"] == "SIDE_INTERACTION":
+        interaction = "BYPASSING_GROUP"
+
+    # croisement
+    elif direction_res["label_main"] == "CROSSING":
+        interaction = "CROSSING_GROUP"
+
+    else:
+        interaction = "WEAK_INTERACTION"
+
+    # ===== RISQUE =====
+    score = 0
+
+    if dist_res["label_main"] == "CRITICAL_PROXIMITY":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 3
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 2
+        elif speed_res["label_main"] == "LOW_DYNAMIC":
+            score += 1
+    elif dist_res["label_main"] == "CLOSE_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 3
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 2
+    elif dist_res["label_main"] == "MODERATE_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 2
+        elif speed_res["label_main"] == "DYNAMIC":
+            score += 1
+    elif dist_res["label_main"] == "FAR_INTERACTION":
+        if speed_res["label_main"] == "VERY_DYNAMIC":
+            score += 1
+    
+
+    if score >= 3:
+        risk = "CRITICAL"
+    elif score >= 2:
+        risk = "HIGH"
+    elif score >= 1:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
+    return {
+        "interaction_type": interaction,
+        "direction": direction_res,
+        "position": pos_res,
+        "distance": dist_res,
+        "speed": speed_res,
+        "in_hull": in_hull,
+        "split": split,
+        "risk": risk,
+        "risk_score": score
+    }
+
+
+def compute_reactivity_score(df_agent):
+    """
+    Score global de réactivité basé sur variation de direction.
+    """
+
+    directions, _ = compute_vector_direction_series(df_agent)
+
+    if len(directions) < 2:
+        return 0
+
+    variations = compute_direction_variation(directions)
+
+    # métriques possibles
+    mean_var = np.mean(variations)
+    max_var = np.max(variations)
+    p90_var = np.percentile(variations, 90)
+
+    return {
+        "mean_variation": mean_var,
+        "max_variation": max_var,
+        "p90_variation": p90_var
+    }
+
+
+def detect_reactive_agent(df, ped_df, cyc_df):
+    """
+    Renvoie reactive_agent, stable_agent"""
+    # ped_df = df[df[COL_ID] == ped_id]
+    # cyc_df = df[df[COL_ID] == cyc_id]
+
+    ped_score = compute_reactivity_score(ped_df)
+    cyc_score = compute_reactivity_score(cyc_df)
+
+    # on compare une métrique robuste, pour ne pas prendre en compte le bruit notamment
+    if ped_score["p90_variation"] > cyc_score["p90_variation"]:
+        return "ped", "cyc"
+    else:
+        return "cyc", "ped"
