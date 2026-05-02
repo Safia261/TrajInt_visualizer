@@ -1,0 +1,10 @@
+numpy
+pandas
+matplotlib
+
+# Données (DBSCAN et ConvecHull)
+scipy
+scikit-learn
+
+# Video export
+ffmpeg
