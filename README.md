@@ -11,6 +11,19 @@ L’objectif est de :
 
 Ce code est conçu dans le cadre d'un stage M2 pour **l'analyse et la modélisation des interactions piétons-micormobilité dans les epsaces partagés**.
 
+<p align="center">
+
+| <img src="img/ctv.gif" width="450"> | <img src="img/clusters_2sep.gif" width="300"> |
+|:----------------------------------:|:--------------------------------------------:|
+| Visualisation des trajectoires d'une vidéo de CTV | Clusters DBSCAN et convex hull pour la vidéo de CTV |
+
+</p>
+
+<p align="center">
+  <img src="img/noname_D1_nofilter.gif" width="600" />
+</p>
+
+
 ---
 
 ## Fonctionnalités principales
