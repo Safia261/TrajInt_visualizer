@@ -42,18 +42,6 @@ def add_background(ax, img, img_w_m, img_h_m):
 
 
 def add_legend(ax, df):
-    # legend_elements = [
-    #     Line2D([0], [0], color=CLASS_COLORS[1], lw=2, label="Pedestrian"),
-    #     Line2D([0], [0], color=CLASS_COLORS[2], lw=2, label="Cyclist"),
-    # ]
-
-    # if include_cars:
-    #     legend_elements.append(
-    #         Line2D([0], [0], color=CLASS_COLORS[3], lw=2, label="Car")
-    #     )
-
-    # ax.legend(handles=legend_elements, loc="upper right")
-
     classes_present = sorted(df[COL_CLASS].unique())
 
     legend_elements = []
@@ -73,6 +61,7 @@ def add_legend(ax, df):
 
 
 def add_mouse_coordinates(fig, ax):
+    # Pour afficher les coordonnées de la souris sur le plan cartésien
     coord_text = ax.text(
         0.01, 0.99, "",
         transform=ax.transAxes,
@@ -91,7 +80,7 @@ def add_mouse_coordinates(fig, ax):
 
 
 # ============================================================
-# MODE 1 : AFFICHAGE STATIQUE
+# MODE 1 : AFFICHAGE STATIQUE (image avec toutes le strajectoires affichées en même temps)
 # ============================================================
 
 def plot_static_trajectories(df, image_path, cfg, show_ids=True):
@@ -108,10 +97,6 @@ def plot_static_trajectories(df, image_path, cfg, show_ids=True):
         ax.set_xlim(df["x_m"].min(), df["x_m"].max())
         ax.set_ylim(df["y_m"].max(), df["y_m"].min())
 
-    # include_cars = 3 in set(df[COL_CLASS].unique())
-
-    # fig, ax = plt.subplots(figsize=(12, 8))
-    # add_background(ax, img, img_w_m, img_h_m)
     add_legend(ax, df)
     add_mouse_coordinates(fig, ax)
 
@@ -271,7 +256,6 @@ def animate_trajectories(
 
     dataset_fps = cfg.get("fps", DEFAULT_FPS)
 
-    # time_grid = build_time_grid(df, fps=fps, use_unique_timestamps=use_unique_timestamps)
     time_grid = build_time_grid(
         df,
         dataset_fps=dataset_fps,
@@ -285,11 +269,6 @@ def animate_trajectories(
     for object_id, g in df.groupby(COL_ID):
         g = g.sort_values(COL_TIME).reset_index(drop=True)
         agent_class = int(g[COL_CLASS].iloc[0])
-        # agents[object_id] = {
-        #     "df": g,
-        #     "class": agent_class,
-        #     "color": CLASS_COLORS.get(agent_class, "yellow")
-        # }
 
         base_color = CLASS_COLORS.get(agent_class, "yellow")
 
@@ -304,8 +283,6 @@ def animate_trajectories(
             "color": color
         }
 
-    # fig, ax = plt.subplots(figsize=(12, 8))
-    # add_background(ax, img, img_w_m, img_h_m)
     add_legend(ax, df)
     coord_text = add_mouse_coordinates(fig, ax)
 
@@ -401,12 +378,6 @@ def animate_trajectories(
 
     fig.canvas.mpl_connect("key_press_event", on_key)
 
-
-    # def update(frame_idx):
-    #     if paused["value"]:
-    #         frame_idx = current_frame["idx"]
-    #     else:
-    #         current_frame["idx"] = frame_idx
 
     def update(frame_idx):
         if manual_step["value"]:

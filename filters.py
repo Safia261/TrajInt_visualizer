@@ -5,10 +5,16 @@ from config import *
 from analysis_interactions import *
 
 
+###############################################
+# Filtrages des trajectoires / interactions influencées par voitures
+###############################################
+
 def filter_spatial_car_influence(df, distance_threshold, ind = False):
     """
     Supprime des datasets les agents (piétons/cyclistes) qui passent trop près d'une voiture (cercle autour avec un rayon donné).
     Supprime aussi les voitures influentes à la fin.
+
+    1er filtre appliqué aux datasets, puis abandonné pour de meileurs.
 
     Parameters:
         df (DataFrame)
@@ -21,7 +27,7 @@ def filter_spatial_car_influence(df, distance_threshold, ind = False):
     bad_vru_ids = set()
     bad_car_ids = set()
 
-    # Comptage initial par classe
+    # Comptage initial par classe pour les statistiques
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
     initial_ped = initial_counts.get(1, 0)
@@ -72,7 +78,7 @@ def filter_spatial_car_influence(df, distance_threshold, ind = False):
 
         vrus = frame[frame[COL_CLASS].isin([1, 2])]
 
-        # ===== 4. Vérifier distance voiture - VRU =====
+        # vérifier distance voiture - VRU
         for _, ped in pedestrians.iterrows():
             for _, cyc in cyclists.iterrows():
 
@@ -94,25 +100,12 @@ def filter_spatial_car_influence(df, distance_threshold, ind = False):
                         bad_vru_ids.add(ped[COL_ID])
                         bad_vru_ids.add(cyc[COL_ID])
                         bad_car_ids.add(car[COL_ID])
-                        break
-
-        # Comparaison distance voiture - VRU
-        # for _, vru in vrus.iterrows():
-        #     for _, car in cars.iterrows():
-        #         dx = vru["x_m"] - car["x_m"]
-        #         dy = vru["y_m"] - car["y_m"]
-        #         dist = np.hypot(dx, dy) # hypothénuse triange = dist euclidienne en 2D
-
-        #         if dist < distance_threshold:
-        #             bad_vru_ids.add(vru[COL_ID])
-        #             bad_car_ids.add(car[COL_ID])
-        #             break
+                        break 
     
-    
-    # FILTRAGE
+    # filtrage
     df_filtered = df[~df[COL_ID].isin(bad_vru_ids.union(bad_car_ids))].copy()
 
-    # COMPTAGE
+    # comptage final pour le statistiques
     final_counts = df_filtered.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
     final_ids = set(df_filtered[COL_ID].unique())
@@ -156,9 +149,21 @@ def filter_spatial_car_influence(df, distance_threshold, ind = False):
 
     return df_filtered, bad_vru_ids.union(bad_car_ids)
 
-
+############
 
 def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
+    """
+    Supprime des datasets les piétons et cyclistes en interaction avec une voiture autour dd'eux (rayon) à ce moment-là. 
+    Appliqué à ind et Stanford (SDD).
+
+    Parameters:
+        df (DataFrame)
+        distance_threshold (float): distance en mètres
+
+    Returns:
+        df_filtered
+        bad_ids: ids des agents supprimés
+    """
     results = classify_interactions_with_car_in_time_and_space(df, distance_threshold, ind)
 
     bad_vru_ids = set()
@@ -167,7 +172,6 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
     initial_ped = initial_counts.get(1, 0)
     initial_cyc = initial_counts.get(2, 0)
-    # initial_car = initial_counts.get(3, 0)
     initial_vehicle = sum(initial_counts.get(c, 0) for c in VEHICLE_CLASSES)
 
     for (ped_id, cyc_id), info in results.items():
@@ -188,7 +192,6 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
 
     final_ped = final_counts.get(1, 0)
     final_cyc = final_counts.get(2, 0)
-    # final_car = final_counts.get(3, 0)
     final_car = sum(final_counts.get(c, 0) for c in VEHICLE_CLASSES)
 
     final_interactions = compute_ped_cyc_interactions(df_filtered)
@@ -226,10 +229,20 @@ def filter_interactions_with_close_cars(df, distance_threshold=5.0, ind=False):
 
     return df_filtered, bad_ids
 
-
+############
 
 def filter_coexisting_with_cars(df):
-    # supprime les trajectoires des piétons et cyclistes dès qu'ils sont sur la même frame qu'une voiture/ tout autre usager différent de cycliste et piéton
+    """
+    Supprime des datasets les usagers présents dans la même frame q'une voiture dès qu'au moins 1 cycliste et 1 piéton y sont présents.
+    Appliqué à noname (TSS).
+
+    Parameters:
+        df (DataFrame)
+
+    Returns:
+        df_filtered
+        bad_ids: ids des agents supprimés
+    """
     initial_counts = df.groupby(COL_CLASS)[COL_ID].nunique().to_dict()
 
     initial_ped = initial_counts.get(1, 0)
@@ -247,10 +260,6 @@ def filter_coexisting_with_cars(df):
     # récupérer tous les agents présents dans ces frames (y compris voitures)
     for t in vehicle_frames:
         frame = df[df[COL_TIME] == t]
-        # ids = frame[COL_ID].unique()
-
-        # for i in ids:
-        #     bad_ids.add(i)
 
         has_ped = (frame[COL_CLASS] == 1).any()
         has_cyc = (frame[COL_CLASS] == 2).any()
@@ -264,6 +273,7 @@ def filter_coexisting_with_cars(df):
     # filtrage
     df_filtered = df[~df[COL_ID].isin(bad_ids)].copy()
 
+    # statistiques
     print("\nAnalyse et impact du filtre")
 
     final_ids = set(df_filtered[COL_ID].unique())
@@ -279,7 +289,6 @@ def filter_coexisting_with_cars(df):
     final_interactions = compute_ped_cyc_interactions(df_filtered)
     final_nb_interactions = len(final_interactions)
 
-    # IMPACT du filtrage
     initial_nb_traj, initial_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
     removed_traj = initial_nb_traj - final_nb_traj
     removed_inter = initial_nb_interactions - final_nb_interactions
@@ -313,13 +322,11 @@ def filter_coexisting_with_cars(df):
 
 
 
-
-
 ###############################################
 # Pour CTV, lissage des trajectoires (filtre de Kalman)
 ###############################################
 
-def apply_kalman_filter(df, R_value=0.5):
+def apply_kalman_filter(df, R_value=1.0):
     filtered_data = []
 
     for object_id, g in df.groupby(COL_ID):
@@ -332,7 +339,6 @@ def apply_kalman_filter(df, R_value=0.5):
             filtered_data.append(g)
             continue
 
-        # xs_f, ys_f = kalman_filter_2d(xs, ys)
         xs_f, ys_f = kalman_filter_2d(xs, ys, R_value)
 
         g = g.copy()
@@ -344,7 +350,7 @@ def apply_kalman_filter(df, R_value=0.5):
     return pd.concat(filtered_data, ignore_index=True)
 
 
-def kalman_filter_2d(xs, ys, R_value=0.5):
+def kalman_filter_2d(xs, ys, R_value=1.0):
     n = len(xs)
 
     # Etat : [x, y, vx, vy]
@@ -415,8 +421,6 @@ def compare_kalman_R(df, R_values, agent_id=None):
 
     for R in R_values:
         xs_f, ys_f = kalman_filter_2d(xs, ys, R_value=R)
-        # smoothness = compute_smoothness(xs_f, ys_f)
-        # print(f"R={R} -> smoothness={smoothness:.4f}")
         plt.plot(xs_f, ys_f, label=f"R={R}")
 
     plt.legend()
@@ -427,15 +431,6 @@ def compare_kalman_R(df, R_values, agent_id=None):
     plt.grid()
 
     plt.show()
-
-# fonction peut-être pas si utile
-# def compute_smoothness(xs, ys):
-#     # variation de vitesse par rapport aux données intiales
-#     dx = np.diff(xs)
-#     dy = np.diff(ys)
-#     speed = np.hypot(dx, dy)
-
-#     return np.std(speed)
 
 
 def get_one_agent_per_class(df):
@@ -457,8 +452,6 @@ def get_one_agent_per_class(df):
 
 
 def compare_kalman_R_two_agents(df, R_values):
-    import matplotlib.pyplot as plt
-
     agents = get_one_agent_per_class(df)
 
     fig, axes = plt.subplots(1, len(agents), figsize=(14, 6))
@@ -472,19 +465,14 @@ def compare_kalman_R_two_agents(df, R_values):
         xs = g["x_m"].values
         ys = g["y_m"].values
 
-        # brute
         ax.plot(xs, ys, 'k--', label="Raw", alpha=0.5)
 
         title = "Pedestrian" if cls == 1 else "Cyclist"
         ax.set_title(f"{title} (ID={agent_id})")
         print(f"\n{title} (ID={agent_id})")
-        # smoothness = compute_smoothness(xs, ys)
-        # print(f"Raw -> smoothness={smoothness:.4f}")
 
         for R in R_values:
             xs_f, ys_f = kalman_filter_2d(xs, ys, R_value=R)
-            # smoothness = compute_smoothness(xs_f, ys_f)
-            # print(f"R={R:<4} -> smoothness={smoothness:.4f}")
             ax.plot(xs_f, ys_f, label=f"R={R}")
 
 

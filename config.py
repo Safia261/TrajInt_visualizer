@@ -1,5 +1,5 @@
 DATASETS = {
-    "noname": { # trouver un nom pour ce dataset plus tard
+    "noname": { # changer le nom en TSS !
         "type": "csv",
         "folder": "trajectory_data",
         "image": "trajectory_data/background.png",
@@ -42,7 +42,6 @@ DATASETS = {
     "ctv_area1": {
         "type": "csv",
         "folder": "CTV_Dataset_v2/transformed/area1",
-        # "folder": "CTV/transformed/area1",
         "image": "CTV_Dataset_v2/transformed/area1/bg_area1.jpg",
 
         "columns": {
@@ -109,7 +108,7 @@ DATASETS = {
         "has_cars": True
     },
 
-    "stanford2": {
+    "stanford2": { # dataset correct !
         "type": "txt",
         "folder": "stanford_campus_dataset/annotations",
 
@@ -149,13 +148,13 @@ DATASETS = {
 
         "format": "centroid",
         "scale": "meter",
-        "fps": 1, # ????
+        "fps": 1, # pas spécifié dans l'article
         "has_cars": False
     }
 }
 
 
-# Noms communs pour les colonnes des fichiers
+# Constantes et noms communs pour les colonnes des fichiers
 COL_TIME = "time_step"
 COL_ID = "object_id"
 COL_CLASS = "user_type"
@@ -171,6 +170,7 @@ CLASS_NAMES = {
     7: "Motorcycle"
 }
 
+# Couleurs des classes
 CLASS_COLORS = {
     1: "tab:blue",
     2: "tab:green",
@@ -181,6 +181,7 @@ CLASS_COLORS = {
     7: "tab:yellow"
 }
 
+# Classes des autres véhicules (motorisés) pas pris en compte dans le sujet du stage
 VEHICLE_CLASSES = {3, 4, 5, 6, 7}
 
 # Affichage statique
@@ -192,9 +193,8 @@ ID_FONT_SIZE = 8
 AGENT_MARKER_SIZE = 50
 ANIM_LINEWIDTH = 1.8
 ANIM_ALPHA = 0.8
-DEFAULT_FPS = 25 # frame per second, dans la cas où un dataset n'indique pas son frame rate
+DEFAULT_FPS = 25 # frame per second, dans le cas où un dataset n'indique pas son frame rate
 
-# None = toute la trajectoire passée, sinon nb max de points
 TAIL_LENGTH = None # peut-être pas nécessaire, à voir avec les autres datasets
 
 # Pour highlight un ID donné

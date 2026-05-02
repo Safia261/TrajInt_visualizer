@@ -191,9 +191,8 @@ def main():
         _, _ = analyze_initial_nb_traj_interactions(df)
 
         if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
-            # df = apply_kalman_filter(df)
+            # analyse du filtre de Kalman
             # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
-            # compare_kalman_R(df, R_values, agent_id=2)
             # compare_kalman_R_two_agents(df, R_values)
             # print("\nRaw data")
             # analyze_speeds(df, cfg)
@@ -203,9 +202,6 @@ def main():
             # print("\naprès filtre")
             # distances = analyze_cycl_ped_distances(df)
             # print("\nFiltred data")
-            # analyze_speeds(df, cfg)
-            # ped = df[df[COL_ID] == 0]
-            # cyc = df[df[COL_ID] == 1]
 
             # times, vrel, vrel_kmh, angles = compute_relative_motion(ped, cyc, cfg["fps"], plot=True)
             # plot_velocity_vectors_over_time(df, 1, cfg["fps"], step=20)
@@ -230,13 +226,7 @@ def main():
             # _, _, _, c_dist = compute_distance_ped_cyc(df, 2, 9, cfg["fps"], plot=True, return_class=True)
             # print("\nDist classification : ", c_dist)
 
-            # dist hausdorff
-            # res_groups = compute_group_distances_over_time(df)
-            # plot_group_distances(res_groups)
-
-            # res_dbscan = dbscan(df, plot=True, verbose=True)
-            # detect_cluster_changes(df, cfg["fps"], plot=True, verbose=True)
-            # hulls = compute_cluster_hulls(res_dbscan, plot=True)
+            
             history_hc = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
 
             r_splits = detect_split_events_with_cyclists(history_hc)
@@ -244,26 +234,15 @@ def main():
             r_insertion = detect_cyclists_in_hulls(history_hc)
             # print("\nDétection faufilement : ", r_insertion)
 
-            # compute_distance_features(history_hc, fps=cfg["fps"], plot=True)
-            # compute_cluster_distances(history_hc, fps=cfg["fps"], plot=True)
             inter_clusters = detect_cluster_interactions(history_hc, df)
             # print("\nInteractions clusters ", inter_clusters)
             interactions = build_interaction_events(history_hc)
-            print("\n INTERACTIONS ", interactions)
+            # print("\n INTERACTIONS ", interactions)
             res_inter = compute_one_interaction_features(df, history_hc, interactions[-1], fps=cfg["fps"], plot=True)
-            print("\n FEATURES INTERACTION", res_inter)
+            # print("\n FEATURES INTERACTION", res_inter)
             res_class = classify_one_interaction(df, history_hc, interactions[-1], cfg["fps"])
             print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-
-            # history = compute_clusters_and_hulls_over_time(...)
-            # splits = detect_split_events_with_cyclists(history)
-            # intrusions = detect_cyclists_in_hulls(history)
-
-            # interactions = classify_interactions(splits, intrusions)
-            # interactions = group_interactions(interactions)
-
-            # summarize_interactions(interactions)
 
 
         if cfg.get("has_cars", False):

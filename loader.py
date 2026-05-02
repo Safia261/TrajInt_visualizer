@@ -3,6 +3,7 @@ import glob
 import pandas as pd
 from config import *
 
+
 def prepare_data(df, no_cars=False):
     df = df.copy()
 
@@ -13,7 +14,6 @@ def prepare_data(df, no_cars=False):
     df[COL_ID] = df[COL_ID].astype(int)
     df[COL_CLASS] = df[COL_CLASS].astype(int)
     return df
-
 
 
 def load_dataset(dataset_name, file_path, args=None):
@@ -34,8 +34,7 @@ def load_dataset(dataset_name, file_path, args=None):
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"Fichier introuvable : {file_path}")
 
-    # ===== LOAD =====
-    # df = pd.read_csv(file_path)
+    # Load
     if cfg["type"] == "csv":
         df = pd.read_csv(file_path)
 
@@ -46,13 +45,12 @@ def load_dataset(dataset_name, file_path, args=None):
         raise ValueError(f"Type non supporté : {cfg['type']}")
     df["__file__"] = os.path.basename(file_path)
 
-    # ===== NORMALISATION =====
+    # Normalisation des colonnes
     col = cfg["columns"]
 
     df = df.rename(columns={
         col["time"]: COL_TIME,
         col["id"]: COL_ID
-        # col["class"]: COL_CLASS
     })
 
     if "class" in col:
@@ -60,7 +58,7 @@ def load_dataset(dataset_name, file_path, args=None):
     else:
         df[COL_CLASS] = 1
 
-    # ===== POSITION =====
+    # Positions
     if cfg["format"] == "centroid":
         df["x_m"] = df[col["x"]]
         df["y_m"] = df[col["y"]]
@@ -69,13 +67,13 @@ def load_dataset(dataset_name, file_path, args=None):
         df["x_m"] = (df[col["tl_x"]] + df[col["br_x"]]) / 2.0
         df["y_m"] = (df[col["tl_y"]] + df[col["br_y"]]) / 2.0
 
-    # ===== SCALE =====
+    # Scale
     if cfg["scale"] == "pixel":
         ppm = cfg["pixels_per_meter"]
         df["x_m"] = df["x_m"] / ppm
         df["y_m"] = df["y_m"] / ppm
 
-    # ===== IMAGE =====
+    # Image (background)
     image_path = cfg["image"]
 
     if image_path is None:
@@ -91,7 +89,7 @@ def load_dataset(dataset_name, file_path, args=None):
 def load_stanford2_dataset(cfg, scene=None, video=None):
     root = cfg["folder"]
 
-    # ===== CHECK SCENE =====
+    # Vérifier scène
     if scene is None:
         scenes = os.listdir(root)
         scene = scenes[0]  # fallback
@@ -102,7 +100,7 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
     if not os.path.isdir(scene_path):
         raise ValueError(f"Scene invalide : {scene}")
 
-    # ===== CHECK VIDEO =====
+    # Vérifier vidéo
     if video is None:
         videos = os.listdir(scene_path)
         video = videos[0]
@@ -116,7 +114,7 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
     if not os.path.exists(ann_file):
         raise FileNotFoundError(f"annotations.txt introuvable dans {video_path}")
 
-    # ===== LOAD =====
+    # Load
     df = pd.read_csv(ann_file, sep=" ", header=None)
 
     df.columns = [
@@ -169,13 +167,13 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
 def load_vru_dataset(cfg, vru_type, vru_behavior):
     base_folder = cfg["folder"]
 
-    # ===== choix des types =====
+    # Choix des types
     if vru_type == "both":
         types = ["pedestrians", "cyclists"]
     else:
         types = [vru_type]
 
-    # ===== ordre IMPORTANT =====
+    # ordre des comportements (important pour avoir une logique des trajectoires et peut être changé ici)
     behavior_order = ["starting", "moving", "stopping", "waiting"]
 
     if vru_behavior == "all":
@@ -184,7 +182,6 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
         behaviors = [vru_behavior]
 
     all_data = []
-    global_id = 0
     time_offset = 0  # pour enchaîner les comportements
 
     for b in behavior_order:
@@ -206,9 +203,6 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
                     "y": "y_m"
                 })
 
-                # ID unique
-                # df[COL_ID] = global_id
-                # global_id += 1
 
                 filename = os.path.splitext(os.path.basename(f))[0]
                 # print(filename)
@@ -232,26 +226,20 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
 
         block_df = pd.concat(block_data, ignore_index=True)
 
-        # =========================================================
-        # NORMALISATION TEMPORELLE DU BLOC
-        # =========================================================
+        # normalisation temporelle du bloc
         t_min = block_df[COL_TIME].min()
         block_df[COL_TIME] = block_df[COL_TIME] - t_min
 
-        # =========================================================
-        # DÉCALAGE POUR ENCHAÎNER LES BLOCS
-        # =========================================================
+        # décalage pour enchaîner les blocs
         block_df[COL_TIME] += time_offset
 
-        # =========================================================
-        # UPDATE OFFSET
-        # =========================================================
+        # update offset
         t_max = block_df[COL_TIME].max()
         time_offset = t_max + 1  # petit gap entre comportements MAIS à voir si je retire ça ou pas après
 
         all_data.append(block_df)
 
-    # concat final
+    # concaténation finale
     if not all_data:
         raise ValueError("Aucune donnée VRU chargée")
 
@@ -279,12 +267,12 @@ def map_ind_class(label):
 def load_ind_dataset(cfg, recording_id):
     folder = cfg["folder"]
 
-    # ===== récupérer recordingId depuis filename =====
+    # récupérer recordingId depuis filename
     recording_id = str(recording_id).zfill(2)
     # filename = os.path.basename(file_path) # à changer pour n'entrer que l'ID du recording à la place
     # recording_id = filename.split("_")[0]
 
-    # ===== chemins fichiers =====
+    # chemins fichiers
     tracks_file = os.path.join(folder, f"{recording_id}_tracks.csv")
     meta_file = os.path.join(folder, f"{recording_id}_tracksMeta.csv")
 
@@ -302,11 +290,11 @@ def load_ind_dataset(cfg, recording_id):
     y_origin = df_meta_rec["yUtmOrigin"].iloc[0]
     px_to_m = df_meta_rec["orthoPxToMeter"].iloc[0] # utilisé pour faire df["x_m"] = (df["xCenter"] - x_origin) / px_to_m, mais le calcul des interactions ensuite est faussé (=0)
 
-    # ===== LOAD =====
+    # Load
     df_tracks = pd.read_csv(tracks_file)
     df_meta = pd.read_csv(meta_file)
 
-    # ===== MERGE =====
+    # Merge
     df = pd.merge(
         df_tracks,
         df_meta[["trackId", "class"]],
@@ -314,7 +302,7 @@ def load_ind_dataset(cfg, recording_id):
         how="left"
     )
 
-    # ===== NORMALISATION =====
+    # normalisation
     df = df.rename(columns={
         "frame": COL_TIME,
         "trackId": COL_ID
@@ -322,17 +310,15 @@ def load_ind_dataset(cfg, recording_id):
 
     df[COL_CLASS] = df["class"].apply(map_ind_class)
 
-    # ===== POSITION =====
+    # Position
     # df["x_m"] = df["xCenter"]
     # df["y_m"] = -df["yCenter"]
     df["x_m"] = (df["xCenter"] - x_origin)
     df["y_m"] = -(df["yCenter"] - y_origin)
 
-
-    # df["__file__"] = filename
     df["__file__"] = recording_id
 
-    # ===== IMAGE =====
+    # Image
     # que 2 images ont été conservées (une par intersection) pour réduire la taille des dossiers
     rid = int(recording_id)
     image_path = None
