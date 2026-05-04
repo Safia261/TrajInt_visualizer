@@ -562,6 +562,7 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
         "relative_position_series": np.column_stack((dx[mask], dy[mask])),
         "PET": compute_pet(df, id_A, id_B, fps, plot=plot),
         "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
+        "TTAC": compute_ttac(df, id_A, id_B, fps, plot=plot),
         "reactive_agent": ra,
         "stable_agent": sa
     }
@@ -792,6 +793,21 @@ def classify_pet(pet):
     elif pet < 2:
         return "HIGH"
     elif pet < 4:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
+def classify_ttac(ttac):
+    """
+    Classification du TTAC min (en sec).
+    """
+
+    if ttac < 1:
+        return "CRITICAL"
+    elif ttac < 2:
+        return "HIGH"
+    elif ttac < 4:
         return "MEDIUM"
     else:
         return "LOW"
@@ -1037,6 +1053,9 @@ def classify_pair_interaction(features):
 
     pet_res = classify_pet(features["PET"])
 
+    _, _, ttac_min = features["TTAC"]
+    ttac_res = classify_ttac(ttac_min)
+
     if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
         if dir_res["label_main"] == "SAME_DIRECTION":
             interaction = "OVERTAKING"
@@ -1121,6 +1140,7 @@ def classify_pair_interaction(features):
         "distance": dist_res,
         "speed": speed_res,
         "pet": pet_res,
+        "ttac": ttac_res,
         "risk": risk,
         "risk_score": score,
         "reactive_agent": features["reactive_agent"],
@@ -1314,9 +1334,6 @@ def detect_reactive_agent(df, ped_df, cyc_df):
 
     ped_score = compute_reactivity_score(ped_df)
     cyc_score = compute_reactivity_score(cyc_df)
-
-    print("\nSCORE PIETON :", ped_score)
-    print ("\nSCORE CYC :", cyc_score)
 
     # on compare une métrique robuste, pour ne pas prendre en compte le bruit notamment
     if ped_score["p90_variation"] > cyc_score["p90_variation"]:

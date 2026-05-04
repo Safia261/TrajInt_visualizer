@@ -946,6 +946,121 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
     return valid_times, ttc_values, ttc_min
 
 
+def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOIR CAR FAIBLE MEME QUAND PAS DE RISQUE
+    """
+    Calcule le TTAC (Time-To-Avoided-Collision point) entre deux agents.
+
+    TTAC = différence de temps d'arrivée au point de conflit (intersection des trajectoires)
+
+    Returns:
+        times, ttac_series, ttac_min, classification (optionnel)
+    """
+
+    # récupérer données alignées
+    gA = df[df[COL_ID] == id_A].sort_values(COL_TIME)
+    gB = df[df[COL_ID] == id_B].sort_values(COL_TIME)
+
+    merged = gA.merge(gB, on=COL_TIME, suffixes=("_A", "_B"))
+
+    if len(merged) < 2:
+        return None, None, None, None
+
+    times = merged[COL_TIME].values
+
+    ttac_values = []
+
+    for i in range(len(merged) - 1):
+
+        # positions
+        pA = np.array([merged.iloc[i]["x_m_A"], merged.iloc[i]["y_m_A"]])
+        pB = np.array([merged.iloc[i]["x_m_B"], merged.iloc[i]["y_m_B"]])
+
+        # vitesses (approx dérivée)
+        pA_next = np.array([merged.iloc[i+1]["x_m_A"], merged.iloc[i+1]["y_m_A"]])
+        pB_next = np.array([merged.iloc[i+1]["x_m_B"], merged.iloc[i+1]["y_m_B"]])
+
+        vA = (pA_next - pA) * fps
+        vB = (pB_next - pB) * fps
+
+        # éviter cas dégénérés
+        if np.linalg.norm(vA) < 1e-3 or np.linalg.norm(vB) < 1e-3:
+            ttac_values.append(None)
+            continue
+
+        # calcul intersection des trajectoires
+        # résoudre : pA + tA*vA = pB + tB*vB
+
+        A_mat = np.column_stack((vA, -vB))
+        b_vec = pB - pA
+
+        if np.linalg.matrix_rank(A_mat) < 2:
+            ttac_values.append(None)
+            continue
+
+        try:
+            t_vals = np.linalg.solve(A_mat, b_vec)
+            tA, tB = t_vals
+
+            # on ne garde que les futurs points
+            if tA < 0 or tB < 0:
+                ttac_values.append(None)
+                continue
+
+            ttac = abs(tA - tB)
+            ttac_values.append(ttac)
+
+        except:
+            ttac_values.append(None)
+
+    ttac_values = np.array(ttac_values, dtype=float)
+
+    # nettoyage
+    valid = ttac_values[np.isfinite(ttac_values)]
+
+    if len(valid) == 0:
+        return times[:-1], ttac_values, None, None
+
+    ttac_min = np.min(valid)
+
+    # classification
+    def classify_ttac(x):
+        if x < 1:
+            return "CRITICAL"
+        elif x < 2:
+            return "HIGH"
+        elif x < 4:
+            return "MEDIUM"
+        else:
+            return "LOW"
+
+    c_ttac = classify_ttac(ttac_min)
+
+    # plot
+    if plot:
+        from analysis_interactions import compute_ped_cyc_interactions_with_time
+        interactions = compute_ped_cyc_interactions_with_time(df)
+
+        frames = interactions.get((id_A, id_B), [])
+        intervals = frames_to_intervals(frames)
+        intervals_sec = [(float(s/fps), float(e/fps)) for s, e in intervals]
+
+        plt.figure(figsize=(8, 4))
+        plt.plot(times[:-1]/fps, ttac_values)
+        plt.axhline(ttac_min, linestyle="--", label=f"min={ttac_min:.2f}")
+        plt.title(f"TTAC en fonction du temps (ped {id_A} - cyc {id_B})")
+        plt.xlabel("Temps (s)")
+        plt.ylabel("TTAC (s)")
+        add_time_markers(plt.gca(), intervals_sec)
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+    if return_class:
+        return times[:-1], ttac_values, ttac_min, c_ttac
+    else:
+        return times[:-1], ttac_values, ttac_min
+
+
 ###############################################
 # Critères spatio-temporels des interactions groupe-individu et groupe-goupe
 ###############################################
@@ -972,6 +1087,33 @@ def compute_vector_direction_series(df_agent):
             directions.append(np.array([dx / norm, dy / norm]))
 
     return np.array(directions), times[1:]
+
+
+def compute_directions_for_ids(df, ids, t):
+    # interprétation: [1, 0]-> droite, [0, 1] -> haut, [-1, 0] -> gauche
+    dirs = []
+    valid_ids = []
+
+    for aid in ids:
+        traj = df[df[COL_ID] == aid].sort_values(COL_TIME)
+
+        curr = traj[traj[COL_TIME] == t]
+        prev = traj[traj[COL_TIME] == t - 1]
+
+        if curr.empty or prev.empty:
+            continue
+
+        dx = curr.iloc[0]["x_m"] - prev.iloc[0]["x_m"]
+        dy = curr.iloc[0]["y_m"] - prev.iloc[0]["y_m"]
+
+        norm = np.hypot(dx, dy)
+        if norm == 0:
+            continue
+
+        dirs.append([dx / norm, dy / norm])
+        valid_ids.append(aid)
+
+    return np.array(dirs), np.array(valid_ids)
 
 
 def compute_direction_variation(directions):
@@ -1061,9 +1203,248 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, return_seconds=Fa
 
 
 
-def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False, fps=None, save_gif=False, output_path="clusters.gif"):
+# def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False, fps=None, save_gif=False, output_path="clusters.gif"):
+#     """
+#     Calcule DBSCAN + convex hull frame par frame.
+
+#     2 DBSCAN appliqués:
+#         1. DBSCAN spatial (clustering en fonction de la distance entre agents allant dans la même direction)
+#         2. DBSCAN directionnel (clustering en fonciton de la direction des agents)
+
+#     Returns:
+#         history[t] = {
+#             "ped": {...},
+#             "cyc": {...}
+#         }
+#     """
+
+#     history = {}
+
+#     for t in sorted(df[COL_TIME].unique()):
+#         frame = df[df[COL_TIME] == t]
+
+#         history[t] = {}
+
+#         for cls, name in [(1, "ped"), (2, "cyc")]:
+#             if name == "ped":
+#                 eps_local = 2.0
+#             else:
+#                 eps_local = 3.0
+
+#             sub = frame[frame[COL_CLASS] == cls]
+
+#             if len(sub) == 0:
+#                 history[t][name] = None
+#                 continue
+
+#             points = sub[["x_m", "y_m"]].values
+#             ids = sub[COL_ID].values
+
+#             clustering = DBSCAN(eps=eps_local, min_samples=min_samples).fit(points)
+#             spatial_labels = clustering.labels_
+
+#             labels = np.full(len(points), -1)
+#             cluster_id = 0
+
+
+#             clusters = []
+#             clusters_ids = []
+#             hulls = []
+#             noise_ids = []
+#             noise_pts = []
+
+#             for lab in set(spatial_labels):
+#                 mask = spatial_labels == lab
+#                 pts = points[mask]
+#                 ids_cluster = ids[mask] # les ids des agents présents dans le cluster en question
+
+#                 if lab == -1: # bruit = usager qui ne fait parti d'aucun cluster
+#                     noise_pts.append(pts)
+#                     noise_ids.extend(ids_cluster)
+#                     continue
+
+#                 dirs, valid_ids = compute_directions_for_ids(df, ids_cluster, t)
+
+#                 if len(dirs) < 2:
+#                     labels[mask] = cluster_id
+
+#                     clusters.append(pts)
+#                     clusters_ids.append(set(ids_cluster))
+
+#                     if len(pts) >= 3:
+#                         hulls.append((pts, ConvexHull(pts)))
+
+#                     cluster_id += 1
+#                     continue
+
+#                 # DBSCAN sur directions (cosine distance)
+#                 clustering_dir = DBSCAN(eps=0.3, min_samples=2, metric="cosine").fit(dirs)
+#                 dir_labels = clustering_dir.labels_
+
+#                 for dlab in set(dir_labels):
+#                     mask_dir = dir_labels == dlab
+#                     sub_ids = valid_ids[mask_dir]
+
+#                     global_mask = np.isin(ids, sub_ids)
+
+#                     if dlab == -1:
+#                         # ces agents qui vont pas dans la même direction doivent devenir du bruit FINAL
+#                         noise_pts.append(points[global_mask])
+#                         noise_ids.extend(sub_ids)
+#                         continue
+
+#                     labels[global_mask] = cluster_id
+
+#                     sub_pts = points[global_mask]
+
+#                     clusters.append(sub_pts)
+#                     clusters_ids.append(set(sub_ids))
+
+#                     if len(sub_pts) >= 3:
+#                         hulls.append((sub_pts, ConvexHull(sub_pts)))
+
+#                     cluster_id += 1
+
+#             if len(noise_pts) > 0:
+#                 noise_pts = np.vstack(noise_pts)
+#             else:
+#                 noise_pts = np.empty((0,2))
+                
+#             history[t][name] = {
+#                 "points": points,
+#                 "ids": ids,
+#                 "labels": labels,
+#                 "clusters": clusters,
+#                 "clusters_ids": clusters_ids,
+#                 "hulls": hulls,
+#                 "n_clusters": len(clusters),
+#                 # "noise": points[labels == -1],
+#                 # "noise_ids": ids[labels == -1], # les ids des agents exclus des clusters
+#                 # "n_noise": np.sum(labels == -1)
+#                 "noise": noise_pts,
+#                 "noise_ids": np.array(noise_ids),
+#                 "n_noise": np.sum(labels == -1)
+#             }
+    
+#     if plot:
+#         times = sorted(history.keys())
+#         fig, ax = plt.subplots(figsize=(6,6))
+
+#         def update(i):
+#             ax.clear()
+
+#             t = times[i]
+#             data = history[t]
+
+#             legend_elements = {}
+
+#             for name, color, noise_color, marker in [("ped", "blue", "cyan", "o"), ("cyc", "green", "lime", "s")]:
+#                 if data[name] is None:
+#                     continue
+
+#                 points = data[name]["points"]
+#                 labels = data[name]["labels"]
+#                 ids = data[name]["ids"]
+
+#                 # clusters
+#                 for lab in set(labels):
+#                     mask = labels == lab
+#                     pts = points[mask]
+
+#                     if lab == -1:
+#                         continue
+
+#                     label_name = f"{name.upper()} cluster {lab}"
+
+#                     sc = ax.scatter(
+#                         pts[:,0], pts[:,1],
+#                         c=color,
+#                         marker=marker,
+#                         label=label_name
+#                     )
+
+#                     if label_name not in legend_elements:
+#                         legend_elements[label_name] = sc
+                
+#                 # bruit
+#                 if len(data[name]["noise"]) > 0:
+#                     sc = ax.scatter(
+#                         data[name]["noise"][:,0], data[name]["noise"][:,1],
+#                         c=noise_color,
+#                         marker="x",
+#                         label=f"{name.upper()} noise"
+#                     )
+
+#                     if f"{name.upper()} noise" not in legend_elements:
+#                         legend_elements[f"{name.upper()} noise"] = sc
+
+#                 # convex hull
+#                 for h in data[name]["hulls"]:
+#                     if h is None:
+#                         continue
+
+#                     pts, hull = h
+#                     for simplex in hull.simplices:
+#                         # ax.plot(pts[simplex,0], pts[simplex,1], color=color)
+#                         ln, = ax.plot(
+#                             pts[simplex,0],
+#                             pts[simplex,1],
+#                             color=color,
+#                             linewidth=2,
+#                             linestyle="-",
+#                             label=f"{name.upper()} hull"
+#                         )
+
+#                         if f"{name.upper()} hull" not in legend_elements:
+#                             legend_elements[f"{name.upper()} hull"] = ln
+                
+#                 # affichage des ids
+#                 text_color = "blue" if name == "ped" else "green"
+#                 for (x, y), aid in zip(points, ids):
+#                     ax.text(
+#                         x + 0.2, y + 0.2,
+#                         str(aid),
+#                         fontsize=8,
+#                         ha='center',
+#                         va='center',
+#                         color=text_color,
+#                         bbox=dict(
+#                             facecolor="white",
+#                             alpha=0.6,
+#                             edgecolor="none",
+#                             boxstyle="round,pad=0.2"
+#                         )
+#                     )
+
+#             ax.set_title(f"Clusters DBSCAN and Convex Hulls - Frame {t}")
+#             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
+#             ax.set_ylim(df["y_m"].max(), df["y_m"].min())  # inversé
+#             ax.set_xlabel("x (m)")
+#             ax.set_ylabel("y (m)")
+#             ax.legend(legend_elements.values(), legend_elements.keys(), fontsize=8)
+#             ax.grid()
+
+#         ani = FuncAnimation(fig, update, frames=len(times), interval=1000/fps)
+
+#         if save_gif:
+#             ani.save(output_path, writer=PillowWriter(fps=fps))
+#             print(f"GIF enregistré ici : {output_path}")
+
+#         plt.show()
+
+#     return history
+
+
+def compute_clusters_and_hulls_over_time(df, min_samples=2,
+                                         eps_dir=0.3,
+                                         plot=False, fps=None,
+                                         save_gif=False, output_path="clusters.gif"):
     """
     Calcule DBSCAN + convex hull frame par frame.
+
+    2 DBSCAN appliqués:
+        1. DBSCAN directionnel (clustering en fonciton de la direction des agents)
+        2. DBSCAN spatial (clustering en fonction de la distance entre agents allant dans la même direction)
 
     Returns:
         history[t] = {
@@ -1076,10 +1457,14 @@ def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False,
 
     for t in sorted(df[COL_TIME].unique()):
         frame = df[df[COL_TIME] == t]
-
         history[t] = {}
 
         for cls, name in [(1, "ped"), (2, "cyc")]:
+            if name == "ped":
+                eps = 1.5
+            else:
+                eps = 2.5
+
             sub = frame[frame[COL_CLASS] == cls]
 
             if len(sub) == 0:
@@ -1089,46 +1474,108 @@ def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False,
             points = sub[["x_m", "y_m"]].values
             ids = sub[COL_ID].values
 
-            clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
-            labels = clustering.labels_
-
             clusters = []
             clusters_ids = []
             hulls = []
 
-            for lab in set(labels):
-                if lab == -1: # bruit = usager qui ne fait parti d'aucun cluster
+            noise_points = []
+            noise_ids = []
+
+            # =========================================================
+            # 1) DBSCAN DIRECTIONNEL (premier filtrage)
+            # =========================================================
+            dirs, valid_ids_all = compute_directions_for_ids(df, ids, t)
+
+            if len(dirs) < 2:
+                # pas assez de direction → fallback spatial direct
+                clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+                labels = clustering.labels_
+                valid_groups = [(labels, ids, points)]
+            else:
+                clustering_dir = DBSCAN(eps=eps_dir, min_samples=2, metric="cosine").fit(dirs)
+                dir_labels = clustering_dir.labels_
+
+                valid_groups = []
+
+                for dlab in set(dir_labels):
+                    mask_dir = dir_labels == dlab
+                    sub_ids = valid_ids_all[mask_dir]
+
+                    if dlab == -1:
+                        # bruit directionnel → bruit final direct
+                        noise_pts = df[
+                            (df[COL_TIME] == t) &
+                            (df[COL_ID].isin(sub_ids))
+                        ][["x_m", "y_m"]].values
+
+                        noise_points.append(noise_pts)
+                        noise_ids.extend(sub_ids)
+                        continue
+
+                    sub_pts = df[
+                        (df[COL_TIME] == t) &
+                        (df[COL_ID].isin(sub_ids))
+                    ][["x_m", "y_m"]].values
+
+                    if len(sub_pts) > 0:
+                        valid_groups.append((None, sub_ids, sub_pts))
+
+            # =========================================================
+            # 2) DBSCAN SPATIAL (sur chaque groupe directionnel)
+            # =========================================================
+            for _, group_ids, group_pts in valid_groups:
+
+                if len(group_pts) < min_samples:
+                    noise_points.append(group_pts)
+                    noise_ids.extend(group_ids)
                     continue
 
-                mask = labels == lab
-                pts = points[mask]
-                ids_cluster = ids[mask] # les ids des agents présents dans le cluster en question
-                # vérifier s'ils ont la même direction aussi ou pas
+                spatial_labels = DBSCAN(
+                    eps=eps,
+                    min_samples=min_samples
+                ).fit_predict(group_pts)
 
-                clusters.append(pts)
-                clusters_ids.append(set(ids_cluster))
-                
-                hull = None
-                if len(pts) >= 3:
-                    hull = ConvexHull(pts)
-                    hulls.append((pts, hull))
-                
+                for lab in set(spatial_labels):
+
+                    mask = spatial_labels == lab
+                    pts = group_pts[mask]
+                    ids_cluster = np.array(list(group_ids))[mask]
+
+                    if lab == -1:
+                        noise_points.append(pts)
+                        noise_ids.extend(ids_cluster.tolist())
+                        continue
+
+                    clusters.append(pts)
+                    clusters_ids.append(set(ids_cluster))
+
+                    if len(pts) >= 3:
+                        hulls.append((pts, ConvexHull(pts)))
+
+            # concat bruit
+            if len(noise_points) > 0:
+                noise_points = np.vstack(noise_points)
+            else:
+                noise_points = np.empty((0, 2))
+
             history[t][name] = {
                 "points": points,
                 "ids": ids,
-                "labels": labels,
                 "clusters": clusters,
                 "clusters_ids": clusters_ids,
                 "hulls": hulls,
+                "noise": noise_points,
+                "noise_ids": np.array(noise_ids),
                 "n_clusters": len(clusters),
-                "noise": points[labels == -1],
-                "noise_ids": ids[labels == -1], # les ids des agents exclus des clusters
-                "n_noise": np.sum(labels == -1)
+                "n_noise": len(noise_ids)
             }
-    
+
+    # =========================================================
+    # VISUALISATION
+    # =========================================================
     if plot:
         times = sorted(history.keys())
-        fig, ax = plt.subplots(figsize=(6,6))
+        fig, ax = plt.subplots(figsize=(6, 6))
 
         def update(i):
             ax.clear()
@@ -1136,99 +1583,61 @@ def compute_clusters_and_hulls_over_time(df, eps=2.0, min_samples=2, plot=False,
             t = times[i]
             data = history[t]
 
-            legend_elements = {}
+            legend = {}
 
-            for name, color, noise_color, marker in [("ped", "blue", "cyan", "o"), ("cyc", "green", "lime", "s")]:
+            for name, color, noise_color, marker in [
+                ("ped", "blue", "cyan", "o"),
+                ("cyc", "green", "lime", "s")
+            ]:
+
                 if data[name] is None:
                     continue
 
-                points = data[name]["points"]
-                labels = data[name]["labels"]
-                ids = data[name]["ids"]
-
                 # clusters
-                for lab in set(labels):
-                    mask = labels == lab
-                    pts = points[mask]
-
-                    if lab == -1:
-                        continue
-
-                    label_name = f"{name.upper()} cluster {lab}"
-
+                for idx, pts in enumerate(data[name]["clusters"]):
                     sc = ax.scatter(
-                        pts[:,0], pts[:,1],
+                        pts[:, 0], pts[:, 1],
                         c=color,
                         marker=marker,
-                        label=label_name
+                        label=f"{name} cluster {idx}"
                     )
+                    legend[f"{name} cluster {idx}"] = sc
 
-                    if label_name not in legend_elements:
-                        legend_elements[label_name] = sc
-                
-                # bruit
+                # noise
                 if len(data[name]["noise"]) > 0:
                     sc = ax.scatter(
-                        data[name]["noise"][:,0], data[name]["noise"][:,1],
+                        data[name]["noise"][:, 0],
+                        data[name]["noise"][:, 1],
                         c=noise_color,
                         marker="x",
-                        label=f"{name.upper()} noise"
+                        label=f"{name} noise"
                     )
+                    legend[f"{name} noise"] = sc
 
-                    if f"{name.upper()} noise" not in legend_elements:
-                        legend_elements[f"{name.upper()} noise"] = sc
-
-                # convex hull
-                for h in data[name]["hulls"]:
-                    if h is None:
-                        continue
-
-                    pts, hull = h
+                # hulls
+                for pts, hull in data[name]["hulls"]:
                     for simplex in hull.simplices:
-                        # ax.plot(pts[simplex,0], pts[simplex,1], color=color)
                         ln, = ax.plot(
-                            pts[simplex,0],
-                            pts[simplex,1],
+                            pts[simplex, 0],
+                            pts[simplex, 1],
                             color=color,
-                            linewidth=2,
-                            linestyle="-",
-                            label=f"{name.upper()} hull"
+                            linewidth=2
                         )
 
-                        if f"{name.upper()} hull" not in legend_elements:
-                            legend_elements[f"{name.upper()} hull"] = ln
-                
-                # affichage des ids
-                text_color = "blue" if name == "ped" else "green"
-                for (x, y), aid in zip(points, ids):
-                    ax.text(
-                        x + 0.2, y + 0.2,
-                        str(aid),
-                        fontsize=8,
-                        ha='center',
-                        va='center',
-                        color=text_color,
-                        bbox=dict(
-                            facecolor="white",
-                            alpha=0.6,
-                            edgecolor="none",
-                            boxstyle="round,pad=0.2"
-                        )
-                    )
+                # ids
+                for (x, y), aid in zip(data[name]["points"], data[name]["ids"]):
+                    ax.text(x + 0.1, y + 0.1, str(aid), fontsize=8, color=color)
 
-            ax.set_title(f"Clusters DBSCAN and Convex Hulls - Frame {t}")
+            ax.set_title(f"Frame {t}")
             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
-            ax.set_ylim(df["y_m"].max(), df["y_m"].min())  # inversé
-            ax.set_xlabel("x (m)")
-            ax.set_ylabel("y (m)")
-            ax.legend(legend_elements.values(), legend_elements.keys(), fontsize=8)
+            ax.set_ylim(df["y_m"].max(), df["y_m"].min())
             ax.grid()
 
-        ani = FuncAnimation(fig, update, frames=len(times), interval=1000/fps)
+        ani = FuncAnimation(fig, update, frames=len(times), interval=1000 / fps)
 
         if save_gif:
             ani.save(output_path, writer=PillowWriter(fps=fps))
-            print(f"GIF enregistré ici : {output_path}")
+            print(f"Saved: {output_path}")
 
         plt.show()
 
