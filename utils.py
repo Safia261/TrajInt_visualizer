@@ -1487,7 +1487,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
             dirs, valid_ids_all = compute_directions_for_ids(df, ids, t)
 
             if len(dirs) < 2:
-                # pas assez de direction → fallback spatial direct
+                # pas assez de direction -> fallback spatial direct
                 clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
                 labels = clustering.labels_
                 valid_groups = [(labels, ids, points)]
@@ -1502,7 +1502,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                     sub_ids = valid_ids_all[mask_dir]
 
                     if dlab == -1:
-                        # bruit directionnel → bruit final direct
+                        # bruit directionnel -> bruit final direct
                         noise_pts = df[
                             (df[COL_TIME] == t) &
                             (df[COL_ID].isin(sub_ids))

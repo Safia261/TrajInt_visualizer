@@ -245,7 +245,7 @@ def main():
             # res_class = classify_one_interaction(df, history_hc, interactions[17], cfg["fps"])
             # print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions2.csv")
+            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions2.csv")
 
 
         if cfg.get("has_cars", False):
