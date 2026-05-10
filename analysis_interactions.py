@@ -553,6 +553,9 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
     else:
         ra = reactive_agent, id_B
         sa = stable_agent, id_A
+    
+    # print("POSITION : ", np.column_stack((dx[mask], dy[mask])))
+    print("ERREUR MASK : ", mask is None or len(mask) == 0 or not np.any(mask))
 
     return {
         "distances": distances[mask],
@@ -561,7 +564,7 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
         "relative_speed_series": rel_speeds_kmh_i,
         "relative_position_series": np.column_stack((dx[mask], dy[mask])),
         "PET": compute_pet(df, id_A, id_B, fps, plot=plot),
-        "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
+        # "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
         "TTAC": compute_ttac(df, id_A, id_B, fps, plot=plot),
         "reactive_agent": ra,
         "stable_agent": sa
@@ -639,6 +642,7 @@ def compute_group_interaction_features(event, history, df, split_events, hull_ev
         hull_events_inter = get_cyclists_in_hull_for_interaction(event, hull_events)
         split_events_inter = get_split_events_for_interaction(event, split_events)
     
+    # conversion en km/h
     rel_speeds_clean = np.array([
         v * 3.6 if v is not None else np.nan
         for v in rel_speeds
@@ -651,7 +655,7 @@ def compute_group_interaction_features(event, history, df, split_events, hull_ev
         "modified_hausdorff": hausdorff_mods,
 
         "relative_position_series": rel_positions,
-        "relative_speed_series": np.array(rel_speeds_clean) * 3.6, # en km/h
+        "relative_speed_series": rel_speeds_clean, # en km/h
         "direction_angle_series": direction_angles,
 
         "density_A_series": densities_A,
@@ -1053,25 +1057,31 @@ def classify_pair_interaction(features):
 
     pet_res = classify_pet(features["PET"])
 
-    _, _, ttac_min = features["TTAC"]
-    ttac_res = classify_ttac(ttac_min)
+    # _, _, ttac_min = features["TTAC"]
+    # ttac_res = classify_ttac(ttac_min)
 
     if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
         if dir_res["label_main"] == "SAME_DIRECTION":
             interaction = "OVERTAKING"
-        elif dir_res["label_main"] == "OPPOSITE_DIRECTION":
-            interaction = "AVOIDANCE"
+        elif dir_res["label_main"] in ["OPPOSITE_DIRECTION", "DIVERGING"]:
+            interaction = "AVOIDANCE" # ici évitement = contournement
         elif dir_res["label_main"] == "CROSSING":
-            interaction = "CROSSING"
+            interaction = "CROSSING" # sorte de contournement mais trajectoires perpendiculaires
+            if (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
+                interaction = "CLOSE_COLLISION"
     
     elif approach_res["label_main"] == "CROSSING":
-        if dir_res["label_main"] in ["CROSSING", "DIVERGING"]:
-            interaction = "CROSSING"
+        interaction = "CROSSING"
+        if (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
+                interaction = "CLOSE_COLLISION"
+
+        # if dir_res["label_main"] in ["CROSSING", "DIVERGING"]:
+        #     interaction = "CROSSING"
 
     elif approach_res["label_main"] == "FRONTAL_APPROACH":
         if dir_res["label_main"] == "SAME_DIRECTION":
             interaction = "FOLLOWING"
-        elif dir_res["label_main"] == "OPPOSITE_DIRECTION":
+        elif dir_res["label_main"] in ["OPPOSITE_DIRECTION", "DIVERGING"]:
             interaction = "AVOIDANCE"
         elif dir_res["label_main"] == "CROSSING":
             interaction = "CROSSING"
@@ -1080,6 +1090,7 @@ def classify_pair_interaction(features):
             elif pet_res == "MEDIUM" or pet_res == "LOW":
                 if speed_res["label_main"] == "DYNAMIC" or speed_res["label_main"] == "LOW_DYNAMIC":
                     interaction = "GIVE_WAY"
+                
     
     elif approach_res["label_main"] == "MOVING_AWAY":
         interaction = "MOVING_AWAY" # éloignement / évitement
@@ -1140,7 +1151,7 @@ def classify_pair_interaction(features):
         "distance": dist_res,
         "speed": speed_res,
         "pet": pet_res,
-        "ttac": ttac_res,
+        # "ttac": ttac_res,
         "risk": risk,
         "risk_score": score,
         "reactive_agent": features["reactive_agent"],
@@ -1185,11 +1196,11 @@ def classify_group_interaction(features):
     elif not in_hull and split:
         interaction = "GROUP_SPLIT"
 
-    # dépassement
-    elif (direction_res["label_main"] == "SAME_DIRECTION" or direction_res["label_main"] == "OPPOSITE_DIRECTION") and pos_res["label_main"] == "SIDE_INTERACTION" and (speed_res["label_main"] == "VERY_DYNAMIC" or speed_res["label_main"] == "DYNAMIC"):
+    # dépassement (dans la même direction)
+    elif direction_res["label_main"] == "SAME_DIRECTION" and pos_res["label_main"] == "SIDE_INTERACTION" and (speed_res["label_main"] == "VERY_DYNAMIC" or speed_res["label_main"] == "DYNAMIC"):
         interaction = "OVERTAKING_GROUP"
 
-    # contournement
+    # contournement (dans des directions opposées ou autre, mais pas dans la même direction)
     elif pos_res["label_main"] == "SIDE_INTERACTION":
         interaction = "BYPASSING_GROUP"
 

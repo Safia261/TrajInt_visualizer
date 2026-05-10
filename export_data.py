@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-
+from config import *
 
 ###############################################
 # Exportation des données filtrées
@@ -21,7 +21,7 @@ def export_filtered_ind_recording(recording_id, bad_ids, dataset_cfg, output_suf
     folder = dataset_cfg["folder"]
     recording_id = str(recording_id).zfill(2)
 
-    # ===== chemins fichiers originaux =====
+    # chemins fichiers originaux
     tracks_file = os.path.join(folder, f"{recording_id}_tracks.csv")
     meta_file   = os.path.join(folder, f"{recording_id}_tracksMeta.csv")
     rec_meta_file = os.path.join(folder, f"{recording_id}_recordingMeta.csv")
@@ -29,33 +29,33 @@ def export_filtered_ind_recording(recording_id, bad_ids, dataset_cfg, output_suf
     if not os.path.exists(tracks_file) or not os.path.exists(meta_file):
         raise FileNotFoundError(f"Fichiers manquants pour recording {recording_id}")
 
-    # ===== chargement =====
+    # chargement
     tracks = pd.read_csv(tracks_file)
     meta   = pd.read_csv(meta_file)
 
-    # ===== filtrage =====
+    # filtrage des données
     tracks_filtered = tracks[~tracks["trackId"].isin(bad_ids)].copy()
     meta_filtered   = meta[~meta["trackId"].isin(bad_ids)].copy()
 
-    # ===== dossier de sortie =====
+    # dossier de sortie
     output_dir = os.path.join(folder, "filtered_ind")
     os.makedirs(output_dir, exist_ok=True)
 
-    # ===== noms fichiers =====
+    # noms fichiers
     tracks_out = os.path.join(output_dir, f"{recording_id}_{output_suffix}_tracks.csv")
     meta_out   = os.path.join(output_dir, f"{recording_id}_{output_suffix}_tracksMeta.csv")
 
     # recordingMeta copié tel quel
     rec_meta_out = os.path.join(output_dir, f"{recording_id}_{output_suffix}_recordingMeta.csv")
 
-    # ===== sauvegarde =====
+    # sauvegarde
     tracks_filtered.to_csv(tracks_out, index=False)
     meta_filtered.to_csv(meta_out, index=False)
 
     if os.path.exists(rec_meta_file):
         pd.read_csv(rec_meta_file).to_csv(rec_meta_out, index=False)
 
-    # ===== stats =====
+    # stats
     initial_tracks = tracks["trackId"].nunique()
     final_tracks = tracks_filtered["trackId"].nunique()
 
@@ -67,6 +67,55 @@ def export_filtered_ind_recording(recording_id, bad_ids, dataset_cfg, output_suf
 
     return tracks_out, meta_out, rec_meta_out
 
+
+
+def export_filtered_data(df_filtered, dataset_type, dataset_folder, raw_csv_name, output_folder):
+    """
+    Filtre un CSV brut (CTV, noname, etc.) en utilisant le df_filtered comme masque
+
+    filter_full_trajectories : bool
+        True  -> garde toutes les frames des agents filtrés
+        False -> garde uniquement les frames présentes dans df_filtered
+    """
+
+    if "ctv" in dataset_type:
+        id_col_raw = "id"
+        time_col_raw = "frame"
+
+    elif dataset_type == "noname":
+        id_col_raw = "object_id"
+        time_col_raw = "time_step"
+
+    else:
+        raise ValueError(f"Dataset inconnu: {dataset_type}")
+
+    # on load les vraies données
+    raw_csv_path = os.path.join(dataset_folder, raw_csv_name)
+    if not os.path.exists(raw_csv_path):
+        raise FileNotFoundError(f"Fichier introuvable : {raw_csv_path}")
+    raw_df = pd.read_csv(raw_csv_path)
+
+    # IDs à garder
+    ids_to_keep = df_filtered[COL_ID].unique()
+
+    # filtrage principal -> on extrait les données des agents dont les trajectoires sont à garder
+    df_out = raw_df[raw_df[id_col_raw].isin(ids_to_keep)]
+
+    times_to_keep = df_filtered[COL_TIME].unique()
+    df_out = df_out[df_out[time_col_raw].isin(times_to_keep)]
+
+    # tri propre
+    df_out = df_out.sort_values([id_col_raw, time_col_raw])
+
+    # export
+    base, ext = os.path.splitext(raw_csv_name)
+    output_path = os.path.join(output_folder, f"{base}_filtered{ext}")
+
+    df_out.to_csv(output_path, index=False)
+
+    print(f"\nExport terminé : {output_path}")
+    print(f"Nb agents : {df_out[id_col_raw].nunique()}")
+    print(f"Nb lignes : {len(df_out)}")
 
 
 
@@ -103,8 +152,6 @@ def export_interactions_to_csv(
         res = None
 
         try:
-            # Classification et features de l'interaction
-
             # Classification de l'interaction selon features
             res = classify_one_interaction(df, history, inter, fps)
 
@@ -144,7 +191,7 @@ def export_interactions_to_csv(
             "interaction_label": main_label,
             
             "direction": label.get("direction", {}).get("label_main"),
-            "approach": label.get("approach", {}).get("label_main"),
+            "approach": label.get("approach", {}).get("label_main"),       # que pour interaction individu-individu
             "position": label.get("position", {}).get("label_main"),
             "distance": label.get("distance", {}).get("label_main"),
             "dist_mean": label.get("distance", {}).get("mean"),
@@ -164,10 +211,6 @@ def export_interactions_to_csv(
             "risk": label.get("risk", None),
             "risk_score": label.get("risk_score", None)
         }
-
-        # Ajout des features ?
-        # for k, v in features.items():
-        #     row[k] = v
 
         rows.append(row)
 

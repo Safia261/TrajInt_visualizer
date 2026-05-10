@@ -174,7 +174,9 @@ def main():
         run_visualization(df, image_path, cfg, args)
         return
 
-    # ===== MODE SINGLE =====
+    #################################
+    # MODE SINGLE
+    #################################
     if args.input_mode == "single":
         if args.file is None:
             raise ValueError("Tu dois spécifier --file en mode single")
@@ -187,8 +189,8 @@ def main():
 
 
         # df, image_path, cfg = load_dataset(args.dataset, file_path)
-        df = prepare_data(df, no_cars=args.no_cars)
-        _, _ = analyze_initial_nb_traj_interactions(df)
+        df = prepare_data(df, no_cars=args.no_cars) # à retirer car inutile grâce au filtrage
+        _, _ = analyze_initial_nb_traj_interactions(df) # ajouter arg flag pour l'analyse
 
         if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
             # analyse du filtre de Kalman
@@ -199,6 +201,8 @@ def main():
             # print("\navant filtre")
             # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
+            # export_filtered_data(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
+            # print(df)
             # print("\naprès filtre")
             # distances = analyze_cycl_ped_distances(df)
             # print("\nFiltred data")
@@ -236,16 +240,16 @@ def main():
 
             inter_clusters = detect_cluster_interactions(history_hc, df)
             # print("\nInteractions clusters ", inter_clusters)
-            interactions = build_interaction_events(history_hc)
+            interactions = build_interaction_events(history_hc, fps=cfg["fps"])
             # print("\n INTERACTIONS ", interactions)
-            # res_inter = compute_one_interaction_features(df, history_hc, interactions[17], fps=cfg["fps"], plot=True)
+            # res_inter = compute_one_interaction_features(df, history_hc, interactions[0], fps=cfg["fps"], plot=True)
             # print("\n Interaction 17 : ", interactions[17])
             # print("\n Interaction 3 : ", interactions[3])
             # # print("\n FEATURES INTERACTION", res_inter)
-            # res_class = classify_one_interaction(df, history_hc, interactions[17], cfg["fps"])
+            # res_class = classify_one_interaction(df, history_hc, interactions[0], cfg["fps"])
             # print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions2.csv")
+            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions_corr2.csv")
 
 
         if cfg.get("has_cars", False):
@@ -254,19 +258,24 @@ def main():
                 # df, bad_ids = filter_spatial_car_influence(df, distance_threshold=5.0, ind = True)
                 df, bad_ids = filter_interactions_with_close_cars(df, ind = True)
                 # print(bad_ids)
-                analyze_speeds(df, cfg)
+                # analyze_speeds(df, cfg)
                 # distances = analyze_car_vru_distances(df)
-                # export_filtered_ind_recording(args.file, bad_ids, cfg)
+                export_filtered_ind_recording(args.file, bad_ids, cfg)
             elif args.dataset == "noname":
                 df, _ = filter_coexisting_with_cars(df)
+                history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
+                interactions = build_interaction_events(history, fps=cfg["fps"])
+                export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname2.csv")
+
+                # export_filtered_data(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
 
         run_visualization(df, image_path, cfg, args)
 
-    # ===== MODE ALL (un par un) =====
+    #################################
+    # MODE ALL (un par un)
+    #################################
     elif args.input_mode == "all":
-        # files = glob.glob(os.path.join(folder, "*.csv"))
         pattern = cfg.get("file_pattern", "*.csv")
-        # files = glob.glob(os.path.join(folder, pattern))
         if "files" in cfg:
             files = [os.path.join(folder, f) for f in cfg["files"]]
         else:
@@ -278,30 +287,26 @@ def main():
 
         try:
             for f in files:
-                print(f"\n===== Lecture de {os.path.basename(f)} =====")
+                print(f"\nLecture de {os.path.basename(f)}")
 
                 df, image_path, cfg = load_dataset(args.dataset, f)
                 df = prepare_data(df, no_cars=args.no_cars)
-                _, _ = analyze_initial_nb_traj_interactions(df)
+                # _, _ = analyze_initial_nb_traj_interactions(df)
 
                 # filtrage
                 if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
-                    # df = apply_kalman_filter(df)
-                    # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
-                    # compare_kalman_R(df, R_values, agent_id=2)
-                    # compare_kalman_R_two_agents(df, R_values)
-                    # print("\nRaw data")
-                    # analyze_speeds(df, cfg)
                     df = apply_kalman_filter(df, R_value=1.0)
-                    # print("\nFiltred data")
-                    # analyze_speeds(df, cfg)
+                    export_filtered_data(df, args.dataset, cfg["folder"], os.path.basename(f), "CTV_filtered")
                     
                 if cfg.get("has_cars", False):
-                    # distances = analyze_car_vru_distances(df)
-                    # df = filter_spatial_car_influence(df, distance_threshold=5.0)
-                    df, _ = filter_coexisting_with_cars(df)
+                    if args.dataset == "ind":
+                        df, _ = filter_interactions_with_close_cars(df, ind = True)
 
-                run_visualization(df, image_path, cfg, args)
+                    elif args.dataset == "noname":
+                        df, _ = filter_coexisting_with_cars(df)
+                        export_filtered_data(df, args.dataset, cfg["folder"], os.path.basename(f), "TSS_filtered")
+
+                # run_visualization(df, image_path, cfg, args)
 
         except KeyboardInterrupt:
             print("\nArrêt demandé par l'utilisateur. Fin du programme.")
