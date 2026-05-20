@@ -16,7 +16,7 @@ DATASETS = {
         "format": "centroid",
         "scale": "pixel",
         "pixels_per_meter": 21.185660421977854,
-        "fps": 0.5,
+        "fps": 2, # car "Each time step lasts 0.5 seconds"
         "has_cars": True
     },
 
@@ -130,7 +130,7 @@ DATASETS = {
         "format": "bbox", # pas précisé dans l'article
         "scale": "pixel", # pas précisé dans l'article mais semble cohérent d'après les valeurs
         "pixels_per_meter": 1.0, # pas précisé dans l'article
-        "fps": 1, # pas précisé dans l'article
+        "fps": 29.97, # pas précisé dans l'article mais d'après les propriétés des vidéos
         "has_cars": True
     },
 

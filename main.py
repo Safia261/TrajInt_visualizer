@@ -201,7 +201,8 @@ def main():
             # print("\navant filtre")
             # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
-            # export_filtered_data(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
+            # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
+            # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_filt")
             # print(df)
             # print("\naprès filtre")
             # distances = analyze_cycl_ped_distances(df)
@@ -249,7 +250,7 @@ def main():
             # res_class = classify_one_interaction(df, history_hc, interactions[0], cfg["fps"])
             # print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions_corr2.csv")
+            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions_corr2.csv")
 
 
         if cfg.get("has_cars", False):
@@ -263,11 +264,12 @@ def main():
                 export_filtered_ind_recording(args.file, bad_ids, cfg)
             elif args.dataset == "noname":
                 df, _ = filter_coexisting_with_cars(df)
-                history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
-                interactions = build_interaction_events(history, fps=cfg["fps"])
-                export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname2.csv")
+                # history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
+                # interactions = build_interaction_events(history, fps=cfg["fps"])
+                # export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname2.csv")
 
-                # export_filtered_data(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
+                # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
+                # export_filtered_data(df, args.dataset, args.file, "data_filtered/noname_filt")
 
         run_visualization(df, image_path, cfg, args)
 
@@ -296,7 +298,8 @@ def main():
                 # filtrage
                 if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
                     df = apply_kalman_filter(df, R_value=1.0)
-                    export_filtered_data(df, args.dataset, cfg["folder"], os.path.basename(f), "CTV_filtered")
+                    # export_filtered_data_original(df, args.dataset, cfg["folder"], os.path.basename(f), "CTV_filtered")
+                    export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/ctv_filt")
                     
                 if cfg.get("has_cars", False):
                     if args.dataset == "ind":
@@ -304,7 +307,8 @@ def main():
 
                     elif args.dataset == "noname":
                         df, _ = filter_coexisting_with_cars(df)
-                        export_filtered_data(df, args.dataset, cfg["folder"], os.path.basename(f), "TSS_filtered")
+                        # export_filtered_data_original(df, args.dataset, cfg["folder"], os.path.basename(f), "TSS_filtered")
+                        export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/noname_filt")
 
                 # run_visualization(df, image_path, cfg, args)
 

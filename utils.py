@@ -1982,7 +1982,7 @@ def build_interaction_events(history, threshold=5.0, fps=None):
         if pair not in allowed_pairs:
             continue
             
-        # filtre durée (une interaction doit au moins durer 1 sec)
+        # filtre durée (une interaction doit au moins durer 0.1 sec)
         if fps is not None:
             duration_frames = e["end"] - e["start"]
             duration_s = duration_frames / fps
