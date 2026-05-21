@@ -202,6 +202,12 @@ def export_interactions_to_csv(
 
         label = res["label"]
 
+        ttac_data = features.get("TTAC", None)
+        if ttac_data is not None:
+            _, _, ttac_min = ttac_data
+        else:
+            ttac_min = None
+
         # Infos de base interaction
         row = {
             "interaction_id": i,
@@ -232,6 +238,8 @@ def export_interactions_to_csv(
             # spécifique interaction paire
             "pet": label.get("pet", None),
             "pet_val": features.get("PET", None),
+            "ttac": label.get("ttac", None),
+            "ttac_min": ttac_min,
 
             # risque
             "risk": label.get("risk", None),

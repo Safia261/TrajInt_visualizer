@@ -807,6 +807,9 @@ def classify_ttac(ttac):
     Classification du TTAC min (en sec).
     """
 
+    if ttac is None:
+        return "None"
+
     if ttac < 1:
         return "CRITICAL"
     elif ttac < 2:
@@ -1057,8 +1060,8 @@ def classify_pair_interaction(features):
 
     pet_res = classify_pet(features["PET"])
 
-    # _, _, ttac_min = features["TTAC"]
-    # ttac_res = classify_ttac(ttac_min)
+    _, _, ttac_min = features["TTAC"]
+    ttac_res = classify_ttac(ttac_min)
 
     if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
         if dir_res["label_main"] == "SAME_DIRECTION":
@@ -1110,6 +1113,13 @@ def classify_pair_interaction(features):
     elif pet_res == "MEDIUM":
         score += 1
     
+    if ttac_res == "CRITICAL":
+        score += 3
+    elif ttac_res == "HIGH":
+        score += 2
+    elif ttac_res == "MEDIUM":
+        score += 1
+    
 
     if dist_res["label_main"] == "CRITICAL_PROXIMITY":
         if speed_res["label_main"] == "VERY_DYNAMIC":
@@ -1151,7 +1161,7 @@ def classify_pair_interaction(features):
         "distance": dist_res,
         "speed": speed_res,
         "pet": pet_res,
-        # "ttac": ttac_res,
+        "ttac": ttac_res,
         "risk": risk,
         "risk_score": score,
         "reactive_agent": features["reactive_agent"],

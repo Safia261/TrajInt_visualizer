@@ -243,14 +243,14 @@ def main():
             # print("\nInteractions clusters ", inter_clusters)
             interactions = build_interaction_events(history_hc, fps=cfg["fps"])
             # print("\n INTERACTIONS ", interactions)
-            res_inter = compute_one_interaction_features(df, history_hc, interactions[13], fps=cfg["fps"], plot=True)
+            res_inter = compute_one_interaction_features(df, history_hc, interactions[15], fps=cfg["fps"], plot=True)
             # print("\n Interaction 17 : ", interactions[17])
             # print("\n Interaction 3 : ", interactions[3])
             # print("\n FEATURES INTERACTION", res_inter)
-            res_class = classify_one_interaction(df, history_hc, interactions[13], cfg["fps"])
+            res_class = classify_one_interaction(df, history_hc, interactions[15], cfg["fps"])
             print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_.csv")
+            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_ttac.csv")
 
 
         if cfg.get("has_cars", False):
