@@ -234,26 +234,27 @@ def main():
             
             history_hc = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
 
-            r_splits = detect_split_events_with_cyclists(history_hc)
+            # r_splits = detect_split_events_with_cyclists(history_hc)
             # print("\nSpliting de clusters : ", r_splits)
-            r_insertion = detect_cyclists_in_hulls(history_hc)
+            # r_insertion = detect_cyclists_in_hulls(history_hc)
             # print("\nDétection faufilement : ", r_insertion)
 
             inter_clusters = detect_cluster_interactions(history_hc, df)
             # print("\nInteractions clusters ", inter_clusters)
             interactions = build_interaction_events(history_hc, fps=cfg["fps"])
             # print("\n INTERACTIONS ", interactions)
-            # res_inter = compute_one_interaction_features(df, history_hc, interactions[0], fps=cfg["fps"], plot=True)
+            res_inter = compute_one_interaction_features(df, history_hc, interactions[13], fps=cfg["fps"], plot=True)
             # print("\n Interaction 17 : ", interactions[17])
             # print("\n Interaction 3 : ", interactions[3])
-            # # print("\n FEATURES INTERACTION", res_inter)
-            # res_class = classify_one_interaction(df, history_hc, interactions[0], cfg["fps"])
-            # print("\n CLASSIFICATION : ", res_class["label"])
+            # print("\n FEATURES INTERACTION", res_inter)
+            res_class = classify_one_interaction(df, history_hc, interactions[13], cfg["fps"])
+            print("\n CLASSIFICATION : ", res_class["label"])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions_corr2.csv")
+            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_.csv")
 
 
         if cfg.get("has_cars", False):
+
             # distances = analyze_car_vru_distances(df)
             if args.dataset == "ind":
                 # df, bad_ids = filter_spatial_car_influence(df, distance_threshold=5.0, ind = True)

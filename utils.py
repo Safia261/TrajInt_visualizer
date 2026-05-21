@@ -962,8 +962,8 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
     """
 
     # récupérer données alignées
-    gA = df[df[COL_ID] == id_A].sort_values(COL_TIME)
-    gB = df[df[COL_ID] == id_B].sort_values(COL_TIME)
+    gA = df[df[COL_ID] == id_A].sort_values(COL_TIME) # généralement le piéton (même si pas obligatoire)
+    gB = df[df[COL_ID] == id_B].sort_values(COL_TIME) # généralement le cycliste
 
     merged = gA.merge(gB, on=COL_TIME, suffixes=("_A", "_B"))
 
@@ -980,6 +980,12 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
         pA = np.array([merged.iloc[i]["x_m_A"], merged.iloc[i]["y_m_A"]])
         pB = np.array([merged.iloc[i]["x_m_B"], merged.iloc[i]["y_m_B"]])
 
+        # calcul du TTAC que si usagers en interaction (les 2 dans un rayon de 5m)
+        distance = np.linalg.norm(pA - pB)
+        if distance > 5.0:
+            ttac_values.append(None)
+            continue
+
         # vitesses (approx dérivée)
         pA_next = np.array([merged.iloc[i+1]["x_m_A"], merged.iloc[i+1]["y_m_A"]])
         pB_next = np.array([merged.iloc[i+1]["x_m_B"], merged.iloc[i+1]["y_m_B"]])
@@ -992,7 +998,7 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
             ttac_values.append(None)
             continue
 
-        # calcul intersection des trajectoires
+        # calcul intersection des trajectoires = point de conflit CP (en supposant vitesses et directions constantes, et avec 1 mètre de rayon autour du CP)
         # résoudre : pA + tA*vA = pB + tB*vB
 
         A_mat = np.column_stack((vA, -vB))
@@ -1006,20 +1012,28 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
             t_vals = np.linalg.solve(A_mat, b_vec)
             tA, tB = t_vals
 
-            # on ne garde que les futurs points
-            if tA < 0 or tB < 0:
+            # on ne garde que les futurs points (vérifie si le point de conflit est dans le futur des 2 trajectoires, il n'est pas dépassé)
+            # if tA < 0 or tB < 0:
+            #     ttac_values.append(None)
+            #     continue
+
+            # premier et second agents arrivant au CP
+            t_first = min(tA, tB)
+            t_second = max(tA, tB)
+
+            if t_first < 0: # si le 1er agent qui arrive au CP a dépassé le CP, alors pas de calcul de TTAC
                 ttac_values.append(None)
                 continue
 
-            ttac = abs(tA - tB)
-            ttac_values.append(ttac)
+            # ttac = abs(tA - tB)
+            ttac_values.append(t_second) # d'après l'article TTAC = max(t1, t2) (i.e. le 2ème agent qui atteint le CP)
 
         except:
             ttac_values.append(None)
 
     ttac_values = np.array(ttac_values, dtype=float)
 
-    # nettoyage
+    # nettoyage pour ne prendre le min que parmis les valeurs différents de None
     valid = ttac_values[np.isfinite(ttac_values)]
 
     if len(valid) == 0:
@@ -1037,8 +1051,6 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
             return "MEDIUM"
         else:
             return "LOW"
-
-    c_ttac = classify_ttac(ttac_min)
 
     # plot
     if plot:
@@ -1061,6 +1073,7 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOI
         plt.show()
 
     if return_class:
+        c_ttac = classify_ttac(ttac_min)
         return times[:-1], ttac_values, ttac_min, c_ttac
     else:
         return times[:-1], ttac_values, ttac_min
