@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.path import Path
@@ -951,7 +952,7 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
     return valid_times, ttc_values, ttc_min
 
 
-def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False): # A REVOIR CAR FAIBLE MEME QUAND PAS DE RISQUE
+def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False):
     """
     Calcule le TTAC (Time-To-Avoided-Collision point) entre deux agents.
 
@@ -1134,7 +1135,7 @@ def compute_directions_for_ids(df, ids, t):
     return np.array(dirs), np.array(valid_ids)
 
 
-def compute_direction_variation(directions):
+def compute_direction_variation_old(directions):
     """
     Calcule les variations angulaires (en radians) entre directions successives.
     Pour déterminer ensuite quel agent est plus récatif que l'autre dans une interaction.
@@ -2317,3 +2318,453 @@ def get_split_events_for_interaction(interaction, split_events):
                     relevant.append(ev)
 
     return relevant
+
+
+################################
+# Fonctions pour évaluer la réactivité des agents lors des interactions
+################################
+
+def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
+    """
+    Variation de vitesse sans référence (différences locales). Permet de repréer les changments brusques.
+    """
+
+    df = df_agent.sort_values(COL_TIME).copy()
+
+    _, _, speed_kmh = compute_speed(df, fps)
+
+    df = df.copy()
+    # df["speed_kmh"] = speed_kmh
+    df["speed_kmh"] = np.nan
+    df.loc[df.index[1:], "speed_kmh"] = speed_kmh
+
+    inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
+    inter = inter.dropna(subset=["speed_kmh"])
+
+    if len(inter) < 2:
+        return None
+
+    speeds_kmh = inter["speed_kmh"].values
+    times = inter[COL_TIME].values
+
+    window = min(5, len(speeds_kmh))
+    speed_smooth = (pd.Series(speeds_kmh).rolling(window=window, center=True, min_periods=1).mean().to_numpy())
+
+    delta_v_kmh = np.abs(np.diff(speed_smooth))
+
+    # normalisation
+    delta_v_norm_kmh = delta_v_kmh / (speed_smooth[:-1] + 1e-6)
+
+    # calcul de la dérivée de la vitesse
+    dv = np.gradient(speed_smooth)
+
+    # moyenne de la dérivée (prendre eps=0.05 ? et voir si mv < -0.05 -> décélération ou mv > 0.05 -> accélération)
+    mean_dv = np.nanmean(dv)
+
+    # accélération brute (réactions rapides/brusques)
+    dv_abs = np.abs(dv)
+
+    fast_reaction = np.nanmax(dv_abs)   # pic de réaction
+
+    # accélération soutenue (trend) (si négatif, décélération)
+    t = np.arange(len(speed_smooth)) / fps
+
+    # régression linéaire simple
+    slope = np.polyfit(t, speed_smooth, 1)[0]  # km/h/s
+
+    # séparation accel / decel (pour quantifier et voir si accélère plus que décélération)
+    accel_part = dv[dv > 0]
+    decel_part = dv[dv < 0]
+
+    mean_accel = np.nanmean(accel_part) if len(accel_part) > 0 else 0
+    mean_decel = np.nanmean(decel_part) if len(decel_part) > 0 else 0
+
+    return {
+        "times": times[1:],
+        # "speeds": speeds_kmh[1:],
+        # "delta_v": delta_v_kmh,
+        # "delta_v_norm": delta_v_norm_kmh,
+        "mean_delta": np.nanmean(delta_v_norm_kmh),
+        "max_delta": np.nanmax(delta_v_norm_kmh),
+        # "dv": dv,
+        "mean_dv": mean_dv,
+        # "speed_smooth": speed_smooth
+        "max_abs_acceleration": fast_reaction,
+
+        # tendance globale
+        "trend_slope": slope,
+
+        # structure comportementale
+        "mean_acceleration": mean_accel,
+        "mean_deceleration": mean_decel,
+
+        # indicateur global
+        "reactivity_score": np.nanmean(dv_abs)
+    }
+
+
+
+def compute_direction_variation(df_agent, inter_start, inter_end, fps):
+    """
+    Calcule la variation de direction pendant une interaction.
+
+    Méthode :
+    - direction via vecteurs unitaires (dx, dy)
+    - lissage des vecteurs (= moyenne glissante sur fenêtre de 3, à voir si pas 5 plutôt)
+    - dérivée angulaire entre directions successives
+    """
+
+    from sklearn.linear_model import LinearRegression
+
+    df = df_agent.sort_values(COL_TIME).copy()
+
+    # calcul direction brute
+    # dx = df["x_m"].diff()
+    # dy = df["y_m"].diff()
+    k = 2
+    dx = df["x_m"].shift(-k) - df["x_m"].shift(k)
+    dy = df["y_m"].shift(-k) - df["y_m"].shift(k)
+
+    vec = np.stack([dx, dy], axis=1)
+
+    norms = np.linalg.norm(vec, axis=1)
+    norms[norms == 0] = np.nan
+
+    dir_vec = vec / norms[:, None]
+
+    df["dx"] = dir_vec[:, 0]
+    df["dy"] = dir_vec[:, 1]
+
+    # lissage des vecteurs via moyenne glissante
+    df["dx_smooth"] = (pd.Series(df["dx"]).rolling(window=5, center=True, min_periods=1).mean())
+
+    df["dy_smooth"] = (pd.Series(df["dy"]).rolling(window=5, center=True, min_periods=1).mean())
+
+    # renormalisation
+    smooth_vec = np.stack([df["dx_smooth"], df["dy_smooth"]], axis=1)
+    smooth_norm = np.linalg.norm(smooth_vec, axis=1)
+    smooth_norm[smooth_norm == 0] = np.nan
+
+    df["dx_smooth"] = df["dx_smooth"] / smooth_norm
+    df["dy_smooth"] = df["dy_smooth"] / smooth_norm
+
+    # extraction interaction
+    inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
+
+    if len(inter) < 2:
+        return None
+
+    v = inter[["dx_smooth", "dy_smooth"]].values
+    times = inter[COL_TIME].values
+
+    # direction inertielle de référence (25% des frmaes de l'interaction)
+    n_ref = max(2, int(len(v) * 0.25))
+    ref_vec = np.nanmean(v[:n_ref], axis=0)
+    ref_norm = np.linalg.norm(ref_vec)
+    if ref_norm == 0 or np.isnan(ref_norm):
+        return None
+
+    v_ref = ref_vec / ref_norm
+
+    # dérivée directionnelle (angle entre vect, variation angulaire par frame) VARIATION LOCALE
+    dtheta = [] # en radians
+    omega_series = [] # vitesse angulaire (= rapidité de réaction dans le changement de direction)
+    dt = 1 / fps
+
+    for i in range(len(v) - 1):
+        v1 = v[i]
+        v2 = v[i + 1]
+
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+
+        if norm1 == 0 or norm2 == 0:
+            dtheta.append(np.nan)
+            continue
+
+        cosang = np.clip(np.dot(v1, v2) / (norm1 * norm2), -1.0, 1.0)
+        angle = np.arccos(cosang)
+
+        omega = angle / dt # en rad / s
+        omega_series.append(omega)
+
+        dtheta.append(angle)
+
+    dtheta = np.array(dtheta)
+
+    mean_dtheta = np.nanmean(dtheta)
+    max_dtheta = np.nanmax(dtheta)
+
+    # stabilité directionnelle
+    stability = 1.0 / (1.0 + np.nanstd(dtheta))
+
+    # dérivation globale par rapp à la direction inertielle
+    dtheta_ref = [] # en degrés
+    for vt in v:
+
+        normt = np.linalg.norm(vt)
+
+        if normt == 0 or np.isnan(normt):
+            dtheta_ref.append(np.nan)
+            continue
+
+        cosang = np.clip(np.dot(v_ref, vt), -1.0, 1.0)
+
+        angle = np.arccos(cosang)
+
+        dtheta_ref.append(np.degrees(angle)) 
+
+    dtheta_ref = np.array(dtheta_ref)
+
+    return {
+        "times": inter[COL_TIME].values[1:],
+        # "direction_vectors": v,
+        # "dtheta": dtheta,
+        "mean_dtheta": mean_dtheta,
+        "max_dtheta": max_dtheta,
+        "direction_stability": stability,
+        # "omega": omega_series,
+        "mean_omega": np.mean(np.array(omega_series)), # peut-être pas si utile
+        "cum_dtheta": np.nansum(dtheta), # rotation/dérivation cumulative
+        # "dtheta_ref": dtheta_ref,
+        "mean_dtheta_ref": np.nanmean(dtheta_ref),
+        "max_dtheta_ref": np.nanmax(dtheta_ref),
+        "std_ref": np.nanstd(dtheta_ref),
+        "cum_dtheta_ref": np.nansum(dtheta_ref),
+        "stability": 1 / (1 + np.nanstd(dtheta_ref)) # division inversement proportionnelle avec écart-type
+
+    }
+
+
+
+# def compute_direction_variation(
+#     df_agent,
+#     inter_start,
+#     inter_end,
+#     fps,
+#     window=5
+# ):
+#     """
+#     Variation de direction via régression locale.
+
+#     Méthode :
+#     - direction estimée par régression linéaire locale
+#     - calcul de la déviation inertielle
+#     - calcul vitesse angulaire
+#     """
+
+#     from sklearn.linear_model import LinearRegression
+
+#     df = df_agent.sort_values(COL_TIME).copy()
+
+#     times_all = df[COL_TIME].values
+#     x_all = df["x_m"].values
+#     y_all = df["y_m"].values
+
+#     n = len(df)
+
+#     dir_vectors = []
+
+#     # direction locale par régression
+
+#     for i in range(n):
+
+#         i0 = max(0, i - window)
+#         i1 = min(n, i + window + 1)
+
+#         t_win = times_all[i0:i1].reshape(-1, 1)
+
+#         if len(t_win) < 2:
+#             dir_vectors.append([np.nan, np.nan])
+#             continue
+
+#         # régression x(t)
+#         reg_x = LinearRegression().fit(t_win, x_all[i0:i1])
+
+#         # régression y(t)
+#         reg_y = LinearRegression().fit(t_win, y_all[i0:i1])
+
+#         vx = reg_x.coef_[0]
+#         vy = reg_y.coef_[0]
+
+#         norm = np.hypot(vx, vy)
+
+#         if norm == 0:
+#             dir_vectors.append([np.nan, np.nan])
+#         else:
+#             dir_vectors.append([vx / norm, vy / norm])
+
+#     dir_vectors = np.array(dir_vectors)
+
+#     df["dx_dir"] = dir_vectors[:, 0]
+#     df["dy_dir"] = dir_vectors[:, 1]
+
+#     # interaction
+
+#     inter = df[
+#         (df[COL_TIME] >= inter_start) &
+#         (df[COL_TIME] <= inter_end)
+#     ].copy()
+
+#     if len(inter) < 3:
+#         return None
+
+#     v = inter[["dx_dir", "dy_dir"]].values
+
+#     # direction inertielle
+
+#     start_pt = inter[["x_m", "y_m"]].iloc[0].values
+#     end_pt = inter[["x_m", "y_m"]].iloc[-1].values
+
+#     inertial = end_pt - start_pt
+
+#     inertial_norm = np.linalg.norm(inertial)
+
+#     if inertial_norm == 0:
+#         return None
+
+#     inertial = inertial / inertial_norm
+
+#     # déviation inertielle
+
+#     dtheta_ref = []
+
+#     for vi in v:
+
+#         if np.any(np.isnan(vi)):
+#             dtheta_ref.append(np.nan)
+#             continue
+
+#         dot = np.clip(np.dot(vi, inertial), -1.0, 1.0)
+
+#         angle = np.degrees(np.arccos(dot))
+
+#         dtheta_ref.append(angle)
+
+#     dtheta_ref = np.array(dtheta_ref)
+
+#     # dérivée angulaire
+
+#     omega = []
+
+#     dt = 1.0 / fps
+
+#     for i in range(len(v) - 1):
+
+#         v1 = v[i]
+#         v2 = v[i + 1]
+
+#         if np.any(np.isnan(v1)) or np.any(np.isnan(v2)):
+#             omega.append(np.nan)
+#             continue
+
+#         dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
+
+#         angle = np.arccos(dot)
+
+#         omega.append(angle / dt) # c'est bien en rad / s
+
+#     omega = np.array(omega)
+
+#     stability = 1 / (1 + np.nanstd(dtheta_ref))
+
+#     return {
+#         "times": inter[COL_TIME].values,
+
+#         "direction_vectors": v,
+
+#         "dtheta_ref": dtheta_ref,
+
+#         "mean_dtheta_ref": np.nanmean(dtheta_ref),
+#         "max_dtheta_ref": np.nanmax(dtheta_ref),
+#         "cum_dtheta_ref": np.nansum(dtheta_ref),
+
+#         "omega": omega,
+#         "mean_omega": np.nanmean(np.abs(omega)),
+#         "max_omega": np.nanmax(np.abs(omega)),
+
+#         "direction_stability": stability
+#     }
+
+
+
+def compute_global_inertial_deviation(df_agent, inter_start, inter_end):
+    """
+    Déviation spatiale globale par rapport à la trajectoire inertielle.
+
+    Mesure distance des positions réelles à la ligne inertielle.
+    """
+
+    df = df_agent.sort_values(COL_TIME).copy()
+
+    inter = df[
+        (df[COL_TIME] >= inter_start) &
+        (df[COL_TIME] <= inter_end)
+    ].copy()
+
+    if len(inter) < 2:
+        return None
+
+    pts = inter[["x_m", "y_m"]].values
+
+    # ligne inertielle (devrait être droite, si pas d'obstacle)
+
+    p0 = pts[0]
+    p1 = pts[-1]
+
+    direction = p1 - p0
+
+    norm = np.linalg.norm(direction)
+
+    if norm == 0:
+        return None
+
+    direction = direction / norm
+
+    # distance entre les points de position réels et la ligne -> déviation
+    deviations = []
+
+    for p in pts:
+
+        vec = p - p0
+
+        proj_len = np.dot(vec, direction)
+
+        proj = p0 + proj_len * direction
+
+        dist = np.linalg.norm(p - proj)
+
+        deviations.append(dist)
+
+    deviations = np.array(deviations)
+
+
+    mean_dev = np.mean(deviations)
+
+    max_dev = np.max(deviations)
+
+    cum_dev = np.sum(deviations)
+
+    std_dev = np.std(deviations)
+
+    stability = 1 / (1 + std_dev)
+
+    return {
+        "times": inter[COL_TIME].values,
+
+        # "deviation_series": deviations,
+
+        "mean_deviation": mean_dev,
+
+        "max_deviation": max_dev,
+
+        "cum_deviation": cum_dev,
+
+        "std_deviation": std_dev,
+
+        "trajectory_stability": stability,
+
+        "inertial_line_start": p0,
+
+        "inertial_line_end": p1
+    }

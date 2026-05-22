@@ -249,8 +249,19 @@ def main():
             # print("\n FEATURES INTERACTION", res_inter)
             res_class = classify_one_interaction(df, history_hc, interactions[15], cfg["fps"])
             print("\n CLASSIFICATION : ", res_class["label"])
+            ped_id = interactions[15]["ids_ped"]
+            df_ped = df[df[COL_ID].isin(ped_id)]
+            cyc_id = interactions[15]["ids_cyc"]
+            df_cyc = df[df[COL_ID].isin(cyc_id)]
+            print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
+            print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
+            print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
+            print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
+            print("\nSpatial ped", compute_global_inertial_deviation(df_ped, interactions[15]["start"], interactions[15]["end"]))
+            print("\nSpatial cyc", compute_global_inertial_deviation(df_cyc, interactions[15]["start"], interactions[15]["end"]))
+            # analyze_speeds(df, cfg, agent_ids=[6,9])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_ttac.csv")
+            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_2211.csv")
 
 
         if cfg.get("has_cars", False):

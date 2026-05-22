@@ -1324,7 +1324,7 @@ def compute_reactivity_score(df_agent):
     if len(directions) < 2:
         return 0
 
-    variations = compute_direction_variation(directions)
+    variations = compute_direction_variation_old(directions)
 
     # métriques possibles
     mean_var = np.mean(variations)
@@ -1361,6 +1361,143 @@ def detect_reactive_agent(df, ped_df, cyc_df):
         return "ped", "cyc"
     else:
         return "cyc", "ped"
+
+
+
+# def compute_reactivity_score(speed_feat, dev_feat,
+#                              alpha=0.5,
+#                              normalize=True):
+#     """
+#     Calcule un score global de réactivité.
+
+#     alpha :
+#         poids entre vitesse (alpha) et déviation spatiale (1-alpha)
+#     """
+
+#     if speed_feat is None or dev_feat is None:
+#         return None
+
+#     # --- SPEED SIGNAL ---
+#     speed_score = (
+#         np.nanmean(speed_feat["delta_v_norm"])
+#         if "delta_v_norm" in speed_feat
+#         else np.nan
+#     )
+
+#     # fallback si NaN
+#     if np.isnan(speed_score):
+#         speed_score = 0
+
+#     # --- SPATIAL DEVIATION ---
+#     spatial_score = dev_feat["mean_deviation"]
+
+#     if spatial_score is None or np.isnan(spatial_score):
+#         spatial_score = 0
+
+#     # --- COMBINAISON ---
+#     score = alpha * speed_score + (1 - alpha) * spatial_score
+
+#     return score
+
+
+# def estimate_most_reactive(agents_features, alpha=0.5):
+#     """
+#     agents_features = {
+#         agent_id: {
+#             "speed": compute_speed_variation_no_ref(...),
+#             "dev": compute_global_inertial_deviation(...)
+#         }
+#     }
+
+#     Retour :
+#         - agent le plus réactif
+#         - ranking complet
+#     """
+
+#     scores = {}
+
+#     for aid, feats in agents_features.items():
+
+#         score = compute_reactivity_score(
+#             feats["speed"],
+#             feats["dev"],
+#             alpha=alpha
+#         )
+
+#         scores[aid] = score
+
+#     # tri
+#     ranking = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+#     return {
+#         "most_reactive": ranking[0],
+#         "ranking": ranking,
+#         "scores": scores
+#     }
+
+
+# def explain_reaction(agents_features):
+#     """
+#     Explique qualitativement le type de réaction :
+#     - vitesse dominante
+#     - trajectoire dominante
+#     - mixte
+#     """
+
+#     explanations = {}
+
+#     for aid, feats in agents_features.items():
+
+#         speed_feat = feats["speed"]
+#         dev_feat = feats["dev"]
+
+#         speed_score = np.nanmean(speed_feat["delta_v_norm"])
+#         spatial_score = dev_feat["mean_deviation"]
+
+#         # normalisation interne
+#         total = speed_score + spatial_score + 1e-6
+
+#         speed_ratio = speed_score / total
+#         spatial_ratio = spatial_score / total
+
+#         if speed_ratio > 0.6:
+#             label = "reaction_speed_dominant"
+
+#         elif spatial_ratio > 0.6:
+#             label = "reaction_spatial_dominant"
+
+#         else:
+#             label = "mixed_reaction"
+
+#         explanations[aid] = {
+#             "speed_score": speed_score,
+#             "spatial_score": spatial_score,
+#             "speed_ratio": speed_ratio,
+#             "spatial_ratio": spatial_ratio,
+#             "label": label
+#         }
+
+#     return explanations
+
+
+# def detect_leader_follower(agents_features):
+#     """
+#     Leader = agent le moins réactif
+#     Follower = agent le plus réactif
+#     """
+
+#     analysis = estimate_most_reactive(agents_features)
+
+#     ranking = analysis["ranking"]
+
+#     follower = ranking[0]      # plus réactif
+#     leader = ranking[-1]       # moins réactif
+
+#     return {
+#         "leader": leader,
+#         "follower": follower,
+#         "ranking": ranking
+#     }
     
 
 ###############################################
