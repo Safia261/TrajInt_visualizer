@@ -1,4 +1,6 @@
 import os
+import glob
+import numpy as np
 import pandas as pd
 from config import *
 
@@ -115,10 +117,13 @@ def export_filtered_data_original(df_filtered, dataset_type, dataset_folder, raw
 
 
 
-def export_filtered_data(df, dataset_name, raw_file_name=None, output_folder="data_filtered", suffix="filtered"):
+def export_filtered_data(df, dataset_name, raw_file_name=None, output_folder="data_filtered", suffix="filtered", file_format="csv"):
     """
     Sauvegarde directement le DataFrame filtré normalisé.
     """
+
+    if file_format not in ["csv", "txt"]:
+        raise ValueError("file_format doit être 'csv' ou 'txt'")
 
     # dataset_output = os.path.join(output_folder, dataset_name)
     os.makedirs(output_folder, exist_ok=True) # créé un dossier s'il n'existe pas, et ne fait rien sinon
@@ -126,15 +131,19 @@ def export_filtered_data(df, dataset_name, raw_file_name=None, output_folder="da
     # nom fichier
     if raw_file_name is not None:
         base = os.path.splitext(os.path.basename(raw_file_name))[0]
-        filename = f"{base}_{suffix}.csv"
+        filename = f"{base}_{suffix}.{file_format}"
     else:
-        filename = f"{dataset_name}_{suffix}.csv"
+        filename = f"{dataset_name}_{suffix}.{file_format}"
 
     # output_path = os.path.join(dataset_output, filename)
     output_path = os.path.join(output_folder, filename)
 
     # export CSV
-    df.to_csv(output_path, index=False)
+    if file_format == "csv":
+        df.to_csv(output_path, index=False)
+    
+    elif file_format == "txt":
+        df.to_csv(output_path, index=False, sep="\t")
 
     print("\nExport DataFrame filtré terminé")
     print(f"Fichier : {output_path}")
@@ -256,3 +265,91 @@ def export_interactions_to_csv(
     print(f"CSV sauvegardé : {output_path}")
 
     return df_out
+
+
+# Pour FlowChain
+
+def export_dataset_by_class(df, dataset_name, raw_file_name=None, output_folder="data_filtered", suffix="filtered", file_format="txt"):
+    """
+    Sépare un DataFrame en plusieurs fichiers CSV selon la classe des agents (piétons et cyclsites seulement).
+    """
+    classes_to_save = {
+        1: "Pedestrian",
+        2: "Cyclist"
+    }
+
+    for class_id, class_name in classes_to_save.items():
+
+        # filtrage selon la classe (ped ou cyc)
+        df_class = df[df[COL_CLASS] == class_id]
+
+        df_class = df_class.drop(columns=[COL_CLASS])
+
+        # si vide on ignore
+        if df_class.empty:
+            continue
+        
+        export_filtered_data(df_class, dataset_name, raw_file_name=raw_file_name, output_folder=output_folder, suffix=suffix + "_" + class_name, file_format=file_format)
+
+
+
+def split_txt_by_trajectory(input_file, output_folder, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15, seed=42):
+    """
+    Sépare un fichier txt de trajectoires pour FlowChain en :
+    - train.txt (70% des trajectoires)
+    - val.txt (15%)
+    - test.txt (15%)
+
+    Le split est effectué par trajectoires (i.e. par object_id).
+    """
+
+    if abs(train_ratio + val_ratio + test_ratio - 1.0) > 1e-6:
+        raise ValueError("Les ratios doivent sommer à 1.")
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Lecture du fichier
+    df = pd.read_csv(input_file, sep="\t")
+
+    # IDs uniques
+    traj_ids = df[COL_ID].unique()
+
+    # Mélange aléatoire (mais peut-être pas nécessaire ?)
+    # rng = np.random.default_rng(seed)
+    # rng.shuffle(traj_ids)
+
+    n = len(traj_ids)
+
+    n_train = int(n * train_ratio)
+    n_val = int(n * val_ratio)
+
+    train_ids = traj_ids[:n_train]
+    val_ids = traj_ids[n_train:n_train + n_val]
+    test_ids = traj_ids[n_train + n_val:]
+
+    # Sous-ensembles
+    df_train = df[df[COL_ID].isin(train_ids)]
+    df_val = df[df[COL_ID].isin(val_ids)]
+    df_test = df[df[COL_ID].isin(test_ids)]
+
+    base_name = os.path.splitext(os.path.basename(input_file))[0]
+
+    train_file = os.path.join(output_folder, f"{base_name}_train.txt")
+    val_file = os.path.join(output_folder, f"{base_name}_val.txt")
+    test_file = os.path.join(output_folder, f"{base_name}_test.txt")
+
+    # Sauvegarde
+    df_train.to_csv(train_file, index=False, header=False, sep="\t") # sep="\t"
+    df_val.to_csv(val_file, index=False, header=False, sep="\t")
+    df_test.to_csv(test_file, index=False, header=False, sep="\t")
+
+    print(f"\nSplit terminé pour {base_name} ({n} trajectoires au total)")
+    print(f"Train : {len(train_ids)} trajectoires ({train_ratio*100}%)")
+    print(f"Val   : {len(val_ids)} trajectoires ({val_ratio*100}%)")
+    print(f"Test  : {len(test_ids)} trajectoires ({test_ratio*100}%)")
+
+    print(f"Train lignes : {len(df_train)}")
+    print(f"Val lignes   : {len(df_val)}")
+    print(f"Test lignes  : {len(df_test)}")
+
+    return train_file, val_file, test_file

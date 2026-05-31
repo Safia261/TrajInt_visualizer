@@ -201,8 +201,10 @@ def main():
             # print("\navant filtre")
             # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
+            # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
             # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
-            # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_filt")
+            # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_flowchain")
+            # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
             # print(df)
             # print("\naprès filtre")
             # distances = analyze_cycl_ped_distances(df)
@@ -243,25 +245,25 @@ def main():
             # print("\nInteractions clusters ", inter_clusters)
             interactions = build_interaction_events(history_hc, fps=cfg["fps"])
             # print("\n INTERACTIONS ", interactions)
-            res_inter = compute_one_interaction_features(df, history_hc, interactions[15], fps=cfg["fps"], plot=True)
+            res_inter = compute_one_interaction_features(df, history_hc, interactions[14], fps=cfg["fps"], plot=True)
             # print("\n Interaction 17 : ", interactions[17])
             # print("\n Interaction 3 : ", interactions[3])
             # print("\n FEATURES INTERACTION", res_inter)
-            res_class = classify_one_interaction(df, history_hc, interactions[15], cfg["fps"])
+            res_class = classify_one_interaction(df, history_hc, interactions[14], cfg["fps"])
             print("\n CLASSIFICATION : ", res_class["label"])
-            ped_id = interactions[15]["ids_ped"]
+            ped_id = interactions[14]["ids_ped"]
             df_ped = df[df[COL_ID].isin(ped_id)]
-            cyc_id = interactions[15]["ids_cyc"]
+            cyc_id = interactions[14]["ids_cyc"]
             df_cyc = df[df[COL_ID].isin(cyc_id)]
-            print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            print("\nSpatial ped", compute_global_inertial_deviation(df_ped, interactions[15]["start"], interactions[15]["end"]))
-            print("\nSpatial cyc", compute_global_inertial_deviation(df_cyc, interactions[15]["start"], interactions[15]["end"]))
+            print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            print("\nSpatial ped", compute_global_inertial_deviation(df_ped, interactions[14]["start"], interactions[14]["end"]))
+            print("\nSpatial cyc", compute_global_inertial_deviation(df_cyc, interactions[14]["start"], interactions[14]["end"]))
             # analyze_speeds(df, cfg, agent_ids=[6,9])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_2211.csv")
+            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_5221.csv")
 
 
         if cfg.get("has_cars", False):
@@ -273,15 +275,17 @@ def main():
                 # print(bad_ids)
                 # analyze_speeds(df, cfg)
                 # distances = analyze_car_vru_distances(df)
-                export_filtered_ind_recording(args.file, bad_ids, cfg)
+                # export_filtered_ind_recording(args.file, bad_ids, cfg)
             elif args.dataset == "noname":
                 df, _ = filter_coexisting_with_cars(df)
+                # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
                 # history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
                 # interactions = build_interaction_events(history, fps=cfg["fps"])
                 # export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname2.csv")
 
                 # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
-                # export_filtered_data(df, args.dataset, args.file, "data_filtered/noname_filt")
+                # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_flowchain")
+                # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ind_filt", file_format="txt")
 
         run_visualization(df, image_path, cfg, args)
 
@@ -289,6 +293,7 @@ def main():
     # MODE ALL (un par un)
     #################################
     elif args.input_mode == "all":
+        all_dfs = []
         pattern = cfg.get("file_pattern", "*.csv")
         if "files" in cfg:
             files = [os.path.join(folder, f) for f in cfg["files"]]
@@ -298,20 +303,32 @@ def main():
 
         if not files:
             raise FileNotFoundError(f"Aucun CSV trouvé dans {folder}")
+        
+        # split_txt_by_trajectory("flowchain_data/ind/ind_Pedestrian.txt", "flowchain_data/ind")
+        # split_txt_by_trajectory("flowchain_data/ind/ind_Cyclist.txt", "flowchain_data/ind")
 
         try:
             for f in files:
                 print(f"\nLecture de {os.path.basename(f)}")
 
-                df, image_path, cfg = load_dataset(args.dataset, f)
+                if args.dataset == "ind":
+                    recording_id = os.path.basename(f).split("_")[0]
+
+                    df, image_path, cfg = load_dataset(args.dataset, recording_id)
+
+                else:
+                    df, image_path, cfg = load_dataset(args.dataset, f)
+
                 df = prepare_data(df, no_cars=args.no_cars)
+                df = resample_dataset(df, cfg["fps"],target_dt=0.4)
                 # _, _ = analyze_initial_nb_traj_interactions(df)
 
                 # filtrage
                 if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
                     df = apply_kalman_filter(df, R_value=1.0)
                     # export_filtered_data_original(df, args.dataset, cfg["folder"], os.path.basename(f), "CTV_filtered")
-                    export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/ctv_filt")
+                    # export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/ctv_filt")
+                    # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
                     
                 if cfg.get("has_cars", False):
                     if args.dataset == "ind":
@@ -320,9 +337,17 @@ def main():
                     elif args.dataset == "noname":
                         df, _ = filter_coexisting_with_cars(df)
                         # export_filtered_data_original(df, args.dataset, cfg["folder"], os.path.basename(f), "TSS_filtered")
-                        export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/noname_filt")
+                        # export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/noname_filt")
+                        # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
+                        # split_txt_by_trajectory("flowchain_data/tss/noname_Pedestrian.txt", "flowchain_data/tss")
+                
+            #     all_dfs.append(df)
 
-                # run_visualization(df, image_path, cfg, args)
+            #     # run_visualization(df, image_path, cfg, args)
+            
+            # if all_dfs:
+            #     final_df = pd.concat(all_dfs, ignore_index=True)
+            #     export_dataset_by_class(final_df, args.dataset, args.file, "flowchain_data/ind", file_format="txt") 
 
         except KeyboardInterrupt:
             print("\nArrêt demandé par l'utilisateur. Fin du programme.")

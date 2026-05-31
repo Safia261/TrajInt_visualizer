@@ -1,7 +1,9 @@
 import os
 import glob
 import pandas as pd
+import numpy as np
 from config import *
+from visualisation import interpolate_agent_at_time
 
 
 def prepare_data(df, no_cars=False):
@@ -331,3 +333,78 @@ def load_ind_dataset(cfg, recording_id):
         image_path = None
 
     return df, img_path, cfg
+
+
+
+def resample_dataset(df, fps, target_dt=0.4):
+    """
+    Ré-échantillonne les trajectoires avec un pas temporel fixe. Prépare les données pour FlowChain.
+    
+    ex:
+    fps=2 -> dt=0.5 s
+    target_dt=0.4 s -> fps=2.5
+    """
+
+    all_rows = []
+
+    global_t_min = df[COL_TIME].min() / fps
+    global_t_max = df[COL_TIME].max() / fps
+
+    global_times = np.arange(global_t_min, global_t_max + target_dt, target_dt) # en secondes !
+
+    for agent_id, g in df.groupby(COL_ID):
+
+        g = g.sort_values(COL_TIME).reset_index(drop=True)
+
+        if len(g) < 2:
+            continue
+
+        # frames = g[COL_TIME].values
+
+        # times = frames / fps # en secondes !
+
+        # if len(times) < 2:
+        #     continue
+
+        # t_min = times.min()
+        # t_max = times.max()
+
+        # bornes temporelles de l'agent (en secondes !)
+        agent_t_min = g[COL_TIME].min() / fps
+        agent_t_max = g[COL_TIME].max() / fps
+
+        # nouvelle grille temporelle (à corriger pour avoir des frames entières)
+        # target_dt_frames = target_dt * fps
+        # print(target_dt_frames)
+        # new_times = np.arange(t_min, t_max+target_dt, target_dt) # EN SECONDES !
+
+        # for t in new_times:
+        for frame_id, t in enumerate(global_times):
+            
+             # vérifier si l'agent n'existe pas encore ou n'existe plus
+            if t < agent_t_min or t > agent_t_max:
+                continue
+
+            # temps exprimé dans l'ancien système de frames (nécessaire pour l'interpolation)
+            t_old_frame = t * fps
+
+            pos = interpolate_agent_at_time(g, t_old_frame)
+
+            if pos is None:
+                continue
+
+            x, y = pos
+
+            row = {
+                COL_TIME: frame_id,
+                COL_ID: agent_id,
+                "x_m": x,
+                "y_m": y,
+                COL_CLASS: g[COL_CLASS].iloc[0]
+            }
+
+            all_rows.append(row)
+    
+    df_resampled = pd.DataFrame(all_rows)
+
+    return df_resampled.sort_values([COL_TIME, COL_ID]).reset_index(drop=True)

@@ -162,7 +162,7 @@ def interpolate_agent_at_time(agent_df, t):
     xs = agent_df["x_m"].values
     ys = agent_df["y_m"].values
     # behaviors = agent_df["behavior"].values 
-    has_behavior = "behavior" in agent_df.columns
+    has_behavior = "behavior" in agent_df.columns # pour le dataset VRU
 
     if has_behavior:
         behaviors = agent_df["behavior"].values
@@ -188,6 +188,7 @@ def interpolate_agent_at_time(agent_df, t):
         if behaviors[idx_left] != behaviors[idx_right]:
             return None
 
+    # interpolation linéaire simple (hyp: ligne droite entre 2 points connus)
     alpha = (t - t0) / (t1 - t0)
     x = x0 + alpha * (x1 - x0)
     y = y0 + alpha * (y1 - y0)
