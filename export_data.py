@@ -252,7 +252,14 @@ def export_interactions_to_csv(
 
             # risque
             "risk": label.get("risk", None),
-            "risk_score": label.get("risk_score", None)
+            "risk_score": label.get("risk_score", None),
+
+            # réactivité des agents (si interaction paire)
+            "speed_var_ped": label.get("speed_var_ped", None),
+            "speed_var_cyc": label.get("speed_var_cyc", None),
+            "spatial_var_ped": label.get("spatial_var_ped", None),
+            "spatial_var_cyc": label.get("spatial_var_cyc", None),
+            "most_reactive_agent": label.get("most_reactive_agent", None)
         }
 
         rows.append(row)

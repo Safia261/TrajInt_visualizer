@@ -245,25 +245,25 @@ def main():
             # print("\nInteractions clusters ", inter_clusters)
             interactions = build_interaction_events(history_hc, fps=cfg["fps"])
             # print("\n INTERACTIONS ", interactions)
-            res_inter = compute_one_interaction_features(df, history_hc, interactions[14], fps=cfg["fps"], plot=True)
-            # print("\n Interaction 17 : ", interactions[17])
-            # print("\n Interaction 3 : ", interactions[3])
-            # print("\n FEATURES INTERACTION", res_inter)
-            res_class = classify_one_interaction(df, history_hc, interactions[14], cfg["fps"])
-            print("\n CLASSIFICATION : ", res_class["label"])
-            ped_id = interactions[14]["ids_ped"]
-            df_ped = df[df[COL_ID].isin(ped_id)]
-            cyc_id = interactions[14]["ids_cyc"]
-            df_cyc = df[df[COL_ID].isin(cyc_id)]
-            print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            print("\nSpatial ped", compute_global_inertial_deviation(df_ped, interactions[14]["start"], interactions[14]["end"]))
-            print("\nSpatial cyc", compute_global_inertial_deviation(df_cyc, interactions[14]["start"], interactions[14]["end"]))
-            # analyze_speeds(df, cfg, agent_ids=[6,9])
+            # res_inter = compute_one_interaction_features(df, history_hc, interactions[20], fps=cfg["fps"], plot=True)
+            # # print("\n Interaction 17 : ", interactions[17])
+            # # print("\n Interaction 3 : ", interactions[3])
+            # # print("\n FEATURES INTERACTION", res_inter)
+            # res_class = classify_one_interaction(df, history_hc, interactions[20], cfg["fps"])
+            # print("\n CLASSIFICATION : ", res_class["label"])
+            # ped_id = interactions[20]["ids_ped"]
+            # df_ped = df[df[COL_ID].isin(ped_id)]
+            # cyc_id = interactions[20]["ids_cyc"]
+            # df_cyc = df[df[COL_ID].isin(cyc_id)]
+            # print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[20]["start"], interactions[20]["end"], cfg["fps"]))
+            # print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[20]["start"], interactions[20]["end"], cfg["fps"]))
+            # # print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            # # print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
+            # print("\nSpatial ped", compute_spatial_deviation(df_ped, interactions[20]["start"], interactions[20]["end"]))
+            # print("\nSpatial cyc", compute_spatial_deviation(df_cyc, interactions[20]["start"], interactions[20]["end"]))
+            # analyze_speeds(df, cfg, agent_ids=[1,5])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_5221.csv")
+            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_new_2122.csv")
 
 
         if cfg.get("has_cars", False):
@@ -279,9 +279,9 @@ def main():
             elif args.dataset == "noname":
                 df, _ = filter_coexisting_with_cars(df)
                 # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
-                # history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
-                # interactions = build_interaction_events(history, fps=cfg["fps"])
-                # export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname2.csv")
+                history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
+                interactions = build_interaction_events(history, fps=cfg["fps"])
+                export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname3.csv")
 
                 # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
                 # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_flowchain")
@@ -294,6 +294,8 @@ def main():
     #################################
     elif args.input_mode == "all":
         all_dfs = []
+        id_offset = 0
+        frame_offset = 0
         pattern = cfg.get("file_pattern", "*.csv")
         if "files" in cfg:
             files = [os.path.join(folder, f) for f in cfg["files"]]
@@ -304,8 +306,8 @@ def main():
         if not files:
             raise FileNotFoundError(f"Aucun CSV trouvé dans {folder}")
         
-        # split_txt_by_trajectory("flowchain_data/ind/ind_Pedestrian.txt", "flowchain_data/ind")
-        # split_txt_by_trajectory("flowchain_data/ind/ind_Cyclist.txt", "flowchain_data/ind")
+        # split_txt_by_trajectory("flowchain_data/ctv_new/ctv_Pedestrian.txt", "flowchain_data/ctv_new")
+        # split_txt_by_trajectory("flowchain_data/ctv_new/ctv_Cyclist.txt", "flowchain_data/ctv_new")
 
         try:
             for f in files:
@@ -341,13 +343,20 @@ def main():
                         # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
                         # split_txt_by_trajectory("flowchain_data/tss/noname_Pedestrian.txt", "flowchain_data/tss")
                 
+            #     df[COL_ID] += id_offset
+            #     df[COL_TIME] += frame_offset
             #     all_dfs.append(df)
+            #     id_offset = df[COL_ID].max() + 1
+            #     frame_offset = df[COL_TIME].max() + 1
 
             #     # run_visualization(df, image_path, cfg, args)
             
             # if all_dfs:
+            #     print(f"id offset = {id_offset}, frame offset = {frame_offset}")
             #     final_df = pd.concat(all_dfs, ignore_index=True)
-            #     export_dataset_by_class(final_df, args.dataset, args.file, "flowchain_data/ind", file_format="txt") 
+            #     export_dataset_by_class(final_df, args.dataset, args.file, "flowchain_data/ind_new", file_format="txt")
+            #     split_txt_by_trajectory("flowchain_data/ind_new/ind_filtered_Pedestrian.txt", "flowchain_data/ind_new")
+            #     split_txt_by_trajectory("flowchain_data/ind_new/ind_filtered_Cyclist.txt", "flowchain_data/ind_new")
 
         except KeyboardInterrupt:
             print("\nArrêt demandé par l'utilisateur. Fin du programme.")

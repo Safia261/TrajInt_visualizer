@@ -2324,7 +2324,7 @@ def get_split_events_for_interaction(interaction, split_events):
 # Fonctions pour évaluer la réactivité des agents lors des interactions
 ################################
 
-def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
+def compute_speed_variation_no_ref_kmh(df_agent, inter_start, inter_end, fps):
     """
     Variation de vitesse sans référence (différences locales). Permet de repréer les changments brusques.
     """
@@ -2337,6 +2337,10 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
     # df["speed_kmh"] = speed_kmh
     df["speed_kmh"] = np.nan
     df.loc[df.index[1:], "speed_kmh"] = speed_kmh
+
+    # valeur de référence sur 10 frames avant le début de l'interaction
+    pre_inter = df[(df[COL_TIME] < inter_start) & (df[COL_TIME] >= inter_start - 10)].copy()
+    v_ref = pre_inter["speed_kmh"].mean()
 
     inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
     inter = inter.dropna(subset=["speed_kmh"])
@@ -2356,7 +2360,8 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
     delta_v_norm_kmh = delta_v_kmh / (speed_smooth[:-1] + 1e-6)
 
     # calcul de la dérivée de la vitesse
-    dv = np.gradient(speed_smooth)
+    dt = 1 / fps
+    dv = np.gradient(speed_smooth, dt)
 
     # moyenne de la dérivée (prendre eps=0.05 ? et voir si mv < -0.05 -> décélération ou mv > 0.05 -> accélération)
     mean_dv = np.nanmean(dv)
@@ -2379,6 +2384,14 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
     mean_accel = np.nanmean(accel_part) if len(accel_part) > 0 else 0
     mean_decel = np.nanmean(decel_part) if len(decel_part) > 0 else 0
 
+    # par rapport à la valeur de référence
+    speed_change = speed_smooth - v_ref
+    mean_speed_change = np.nanmean(speed_change) # positif -> accélération, négatif -> décélération
+
+    relative_speed_change = (speed_smooth - v_ref) / (v_ref + 1e-6)
+
+    mean_relative_change = np.nanmean(relative_speed_change)
+
     return {
         "times": times[1:],
         # "speeds": speeds_kmh[1:],
@@ -2399,9 +2412,222 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
         "mean_deceleration": mean_decel,
 
         # indicateur global
-        "reactivity_score": np.nanmean(dv_abs)
+        "reactivity_score": np.nanmean(dv_abs),
+
+        "reference_speed": v_ref,
+
+        "mean_speed_change": mean_speed_change,
+
+        "mean_relative_speed_change": mean_relative_change
     }
 
+
+def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
+    """
+    Variation de vitesse sans référence (différences locales). Permet de repréer les changments brusques.
+    """
+
+    df = df_agent.sort_values(COL_TIME).copy()
+
+    _, speed_ms, _ = compute_speed(df, fps)
+
+    df = df.copy()
+    # df["speed_kmh"] = speed_kmh
+    df["speed_ms"] = np.nan
+    df.loc[df.index[1:], "speed_ms"] = speed_ms
+
+    # valeur de référence sur 10 frames avant le début de l'interaction
+    pre_inter = df[(df[COL_TIME] < inter_start) & (df[COL_TIME] >= inter_start - 10)].copy()
+    # v_ref = pre_inter["speed_ms"].mean()
+
+    inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
+    inter = inter.dropna(subset=["speed_ms"])
+
+    if len(inter) < 2:
+        return None
+
+    speeds_ms = inter["speed_ms"].values
+    times = inter[COL_TIME].values
+
+    window = min(5, len(speeds_ms))
+    speed_smooth = (pd.Series(speeds_ms).rolling(window=window, center=True, min_periods=1).mean().to_numpy())
+
+    delta_v_ms = np.abs(np.diff(speed_smooth))
+
+    # normalisation
+    delta_v_norm_ms = delta_v_ms / (speed_smooth[:-1] + 1e-6)
+
+    # calcul de la dérivée de la vitesse
+    dt = 1 / fps
+    dv = np.gradient(speed_smooth, dt)
+
+    # moyenne de la dérivée (prendre eps=0.05 ? et voir si mv < -0.05 -> décélération ou mv > 0.05 -> accélération)
+    mean_dv = np.nanmean(dv)
+
+    # accélération brute (réactions rapides/brusques)
+    dv_abs = np.abs(dv)
+
+    fast_reaction = np.nanmax(dv_abs)   # pic de réaction
+
+    # accélération soutenue (trend) (si négatif, décélération)
+    t = np.arange(len(speed_smooth)) / fps
+
+    # régression linéaire simple
+    slope = np.polyfit(t, speed_smooth, 1)[0]  # km/h/s
+
+    # séparation accel / decel (pour quantifier et voir si accélère plus que décélération)
+    accel_part = dv[dv > 0]
+    decel_part = dv[dv < 0]
+
+    mean_accel = np.nanmean(accel_part) if len(accel_part) > 0 else 0
+    mean_decel = np.nanmean(decel_part) if len(decel_part) > 0 else 0
+
+    # par rapport à la valeur de référence
+    pre_inter = pre_inter.dropna(subset=["speed_ms"])
+    v_ref = np.nan
+    mean_speed_change = np.nan
+    mean_relative_change = np.nan
+    if len(pre_inter) >= 5:
+        v_ref = pre_inter["speed_ms"].mean()
+        speed_change = speed_smooth - v_ref
+        mean_speed_change = np.nanmean(speed_change) # positif -> accélération, négatif -> décélération
+
+        relative_speed_change = (speed_smooth - v_ref) / (v_ref + 1e-6)
+
+        mean_relative_change = np.nanmean(relative_speed_change)
+
+    return {
+        "times": times[1:],
+        # "speeds": speeds_kmh[1:],
+        # "delta_v": delta_v_kmh,
+        # "delta_v_norm": delta_v_norm_kmh,
+        "mean_delta": np.nanmean(delta_v_norm_ms),
+        "max_delta": np.nanmax(delta_v_norm_ms),
+        # "dv": dv,
+        "mean_dv": mean_dv, # en m/s^2
+        # "speed_smooth": speed_smooth
+        "max_abs_acceleration": fast_reaction,
+
+        # tendance globale
+        "trend_slope": slope,
+
+        # structure comportementale
+        "mean_acceleration": mean_accel,
+        "mean_deceleration": mean_decel,
+
+        # indicateur global de la réactivité de l'agent
+        "reactivity_score": np.nanmean(dv_abs),
+
+        "mean_speed": np.nanmean(speed_smooth),
+        "reference_speed": v_ref, # en m/s
+        "mean_speed_change": mean_speed_change, # écart moyen à la vitesse relative
+        "mean_relative_speed_change": mean_relative_change
+    }
+
+
+def compute_speed_variation_with_vref(
+    df,
+    agent_id,
+    interaction_start,
+    interaction_end,
+    fps,
+    pre_frames=10,
+    relative=True
+):
+    """
+    Variation de vitesse par rapport à une vitesse de référence.
+
+    Parameters
+    ----------
+    df : DataFrame
+    agent_id : int
+    interaction_start : int
+    interaction_end : int
+    fps : float
+    pre_frames : int
+        Nombre de frames avant interaction pour calculer v_ref
+    relative : bool
+        True -> variation relative
+        False -> variation absolue
+
+    Returns
+    -------
+    dict avec :
+        - v_ref
+        - times
+        - speeds
+        - delta_v
+        - mean_delta
+        - max_delta
+    """
+
+    traj = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
+
+    # =========================
+    # vitesse instantanée
+    # =========================
+
+    traj = traj.copy()
+
+    traj["dx"] = traj["x_m"].diff()
+    traj["dy"] = traj["y_m"].diff()
+    traj["dt"] = traj[COL_TIME].diff() / fps
+
+    traj["speed"] = (
+        np.hypot(traj["dx"], traj["dy"])
+        / traj["dt"].replace(0, np.nan)
+    )
+
+    # =========================
+    # vitesse de référence
+    # =========================
+
+    pre_mask = (
+        (traj[COL_TIME] >= interaction_start - pre_frames)
+        & (traj[COL_TIME] < interaction_start)
+    )
+
+    vref_values = traj.loc[pre_mask, "speed"].dropna()
+
+    if len(vref_values) == 0:
+        return None
+
+    v_ref = np.mean(vref_values)
+
+    if v_ref == 0:
+        return None
+
+    # =========================
+    # interaction
+    # =========================
+
+    inter_mask = (
+        (traj[COL_TIME] >= interaction_start)
+        & (traj[COL_TIME] <= interaction_end)
+    )
+
+    inter = traj.loc[inter_mask].copy()
+
+    speeds = inter["speed"].values
+    times = inter[COL_TIME].values
+
+    # =========================
+    # variation
+    # =========================
+
+    if relative:
+        delta_v = np.abs(speeds - v_ref) / v_ref
+    else:
+        delta_v = np.abs(speeds - v_ref)
+
+    return {
+        "v_ref": v_ref,
+        "times": times,
+        "speeds": speeds,
+        "delta_v": delta_v,
+        "mean_delta": np.nanmean(delta_v),
+        "max_delta": np.nanmax(delta_v)
+    }
 
 
 def compute_direction_variation(df_agent, inter_start, inter_end, fps):
@@ -2688,7 +2914,7 @@ def compute_direction_variation(df_agent, inter_start, inter_end, fps):
 
 
 
-def compute_global_inertial_deviation(df_agent, inter_start, inter_end):
+def compute_spatial_deviation(df_agent, inter_start, inter_end):
     """
     Déviation spatiale globale par rapport à la trajectoire inertielle.
 

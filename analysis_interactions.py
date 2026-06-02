@@ -541,21 +541,27 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
     mask = np.zeros_like(times, dtype=bool)
     mask |= (times >= start) & (times <= end)
 
-    ped_df = slice_interaction(df, [id_A], start, end)
-    cyc_df = slice_interaction(df, [id_B], start, end)
+    # ped_df = slice_interaction(df, [id_A], start, end)
+    # cyc_df = slice_interaction(df, [id_B], start, end)
 
-    # AGENT REACTIF
-    reactive_agent, stable_agent = detect_reactive_agent(df, ped_df, cyc_df)
+    # REACTIVITE AGENT (variation vitesse et direction)
+    ped_df = df[df[COL_ID] == id_A]
+    cyc_df = df[df[COL_ID] == id_B]
+    speed_var_ped = compute_speed_variation_no_ref(ped_df, start, end, fps)
+    speed_var_cyc = compute_speed_variation_no_ref(cyc_df, start, end, fps)
+    spatial_var_ped = compute_spatial_deviation(ped_df, start, end)
+    spatial_var_cyc = compute_spatial_deviation(cyc_df, start, end)
+    # reactive_agent, stable_agent = detect_reactive_agent(df, ped_df, cyc_df)
 
-    if reactive_agent == "ped":
-        ra = reactive_agent, id_A
-        sa = stable_agent, id_B
-    else:
-        ra = reactive_agent, id_B
-        sa = stable_agent, id_A
+    # if reactive_agent == "ped":
+    #     ra = reactive_agent, id_A
+    #     sa = stable_agent, id_B
+    # else:
+    #     ra = reactive_agent, id_B
+    #     sa = stable_agent, id_A
     
     # print("POSITION : ", np.column_stack((dx[mask], dy[mask])))
-    print("ERREUR MASK : ", mask is None or len(mask) == 0 or not np.any(mask))
+    # print("ERREUR MASK : ", mask is None or len(mask) == 0 or not np.any(mask))
 
     return {
         "distances": distances[mask],
@@ -566,8 +572,10 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
         "PET": compute_pet(df, id_A, id_B, fps, plot=plot),
         # "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
         "TTAC": compute_ttac(df, id_A, id_B, fps, plot=plot),
-        "reactive_agent": ra,
-        "stable_agent": sa
+        "speed_var_ped": speed_var_ped,
+        "speed_var_cyc": speed_var_cyc,
+        "spatial_var_ped": spatial_var_ped,
+        "spatial_var_cyc": spatial_var_cyc
     }
 
 
@@ -820,6 +828,67 @@ def classify_ttac(ttac):
         return "LOW"
 
 
+def classify_speed_variation(speed_metrics, accel_thresh=0.05, slope_thresh=0.02):
+    """
+    Classifie le comportement de vitesse au cours de l'interaction:
+    - ACCELERATING
+    - DECELERATING
+    - STABLE
+    - MIXED (réaction forte mais pas de tendance claire)
+    """
+
+    mean_dv = speed_metrics.get("mean_dv", np.nan)
+    slope = speed_metrics.get("trend_slope", np.nan)
+    mean_speed_change = speed_metrics.get("mean_speed_change", np.nan)
+
+    if np.isnan(mean_dv) or np.isnan(slope) or np.isnan(mean_speed_change):
+        return "UNKNOWN"
+
+    # cas stable globalement
+    if abs(mean_dv) < accel_thresh and abs(slope) < slope_thresh:
+        return "STABLE"
+
+    # réaction: accélération
+    if (mean_dv >= accel_thresh and mean_speed_change > 0.0) or mean_dv >= accel_thresh:
+        return "ACCELERATING"
+
+    if (mean_dv <= -accel_thresh and mean_speed_change < 0.0) or mean_dv <= -accel_thresh or mean_speed_change < 0.0:
+        return "DECELERATING"
+    
+    return "STABLE"
+
+
+
+def classify_spatial_deviation(spatial_metrics, low_thresh=0.2, high_thresh=0.3):
+    """
+    Classe la déviation par rapport à la trajectoire inertielle :
+    - LINEAR (traj stable)
+    - SLIGHT_DEVIATION
+    - MODERATE_DEVIATION
+    - HIGH_DEVIATION
+    """
+
+    mean_dev = spatial_metrics.get("mean_deviation", np.nan)
+    stability = spatial_metrics.get("trajectory_stability", np.nan)
+
+    if np.isnan(mean_dev):
+        return "UNKNOWN"
+
+    # trajectoire quasi droite
+    if mean_dev < low_thresh:
+        return "LINEAR"
+
+    # légère déviation
+    if mean_dev < high_thresh:
+        return "SLIGHT_DEVIATION"
+
+    # déviation moyenne (ou forte ? à voir avec d'autres exemples)
+    if mean_dev < 0.4:
+        return "MODERATE_DEVIATION"
+
+    return "HIGH_DEVIATION"
+
+
 def clean_series(values):
     cleaned = []
 
@@ -1063,6 +1132,26 @@ def classify_pair_interaction(features):
     _, _, ttac_min = features["TTAC"]
     ttac_res = classify_ttac(ttac_min)
 
+    speed_var_ped = features["speed_var_ped"]
+    speed_var_res_ped = classify_speed_variation(speed_var_ped)
+    speed_var_cyc = features["speed_var_cyc"]
+    speed_var_res_cyc = classify_speed_variation(speed_var_cyc)
+    spatial_var_ped = features["spatial_var_ped"]
+    spatial_var_res_ped = classify_spatial_deviation(spatial_var_ped)
+    spatial_var_cyc = features["spatial_var_cyc"]
+    spatial_var_res_cyc = classify_spatial_deviation(spatial_var_cyc)
+
+    stability_ped = spatial_var_ped.get("trajectory_stability", np.nan)
+    stability_cyc = spatial_var_cyc.get("trajectory_stability", np.nan)
+    reactive_agent = ""
+    if not np.isnan(stability_ped) and not np.isnan(stability_cyc):
+        if stability_ped > stability_cyc:
+            reactive_agent = "cyc"
+        elif stability_ped < stability_cyc:
+            reactive_agent = "ped"
+        else: # égalité
+            reactive_agent = "both"
+
     if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
         if dir_res["label_main"] == "SAME_DIRECTION":
             interaction = "OVERTAKING"
@@ -1164,8 +1253,11 @@ def classify_pair_interaction(features):
         "ttac": ttac_res,
         "risk": risk,
         "risk_score": score,
-        "reactive_agent": features["reactive_agent"],
-        "stable_agent": features["stable_agent"]
+        "speed_var_ped": speed_var_res_ped,
+        "speed_var_cyc": speed_var_res_cyc,
+        "spatial_var_ped": spatial_var_res_ped,
+        "spatial_var_cyc": spatial_var_res_cyc,
+        "most_reactive_agent": reactive_agent
     }
 
 
