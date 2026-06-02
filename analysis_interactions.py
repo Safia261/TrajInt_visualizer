@@ -1232,11 +1232,11 @@ def classify_pair_interaction(features):
             score += 1
     
 
-    if score >= 5:
+    if score >= 7:
         risk = "CRITICAL"
-    elif score >= 3:
+    elif score >= 5:
         risk = "HIGH"
-    elif score >= 2:
+    elif score >= 3:
         risk = "MEDIUM"
     else:
         risk = "LOW"
