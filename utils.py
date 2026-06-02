@@ -236,7 +236,7 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
         plt.plot(valid_times / fps, distances, label="Distance (m)")
         plt.axhline(distance_threshold, color="red", linestyle="--", label="Seuil interaction (5m)")
         add_time_markers(plt.gca(), intervals_plot)
-        if t_min_plot != np.nan:
+        if not np.isnan(t_min_plot):
             plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Distance minimale = {dist_min:.2f} m")
         plt.xlabel("Temps (s)")
         plt.ylabel("Distance (m)")
@@ -852,6 +852,9 @@ def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, ret
     ttc_values = np.array(ttc_values)
     valid_times = np.array(valid_times)
 
+    if len(ttc_values) == 0:
+        return valid_times, ttc_values, None
+
     # TTC min
     idx_min = np.argmin(ttc_values)
     ttc_min = ttc_values[idx_min]
@@ -969,7 +972,7 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False):
     merged = gA.merge(gB, on=COL_TIME, suffixes=("_A", "_B"))
 
     if len(merged) < 2:
-        return None, None, None, None
+        return None, None, None
 
     times = merged[COL_TIME].values
 
@@ -1038,7 +1041,7 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False):
     valid = ttac_values[np.isfinite(ttac_values)]
 
     if len(valid) == 0:
-        return times[:-1], ttac_values, None, None
+        return times[:-1], ttac_values, None
 
     ttac_min = np.min(valid)
 

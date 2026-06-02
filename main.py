@@ -263,7 +263,7 @@ def main():
             # print("\nSpatial cyc", compute_spatial_deviation(df_cyc, interactions[20]["start"], interactions[20]["end"]))
             # analyze_speeds(df, cfg, agent_ids=[1,5])
             # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_new_2122.csv")
+            export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="inter_new_5221.csv")
 
 
         if cfg.get("has_cars", False):
@@ -281,7 +281,7 @@ def main():
                 # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
                 history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
                 interactions = build_interaction_events(history, fps=cfg["fps"])
-                export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_noname3.csv")
+                export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_tssD1.csv")
 
                 # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
                 # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_flowchain")
