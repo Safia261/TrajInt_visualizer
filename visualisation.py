@@ -240,7 +240,9 @@ def animate_trajectories(
     speed=1.0,
     frame_step=1,
     save_video=None,
-    highlight_id=None
+    highlight_id=None,
+    video_name=None,
+    dataset_name=None
 ):
     fig, ax = plt.subplots(figsize=(12, 8))
     # img, img_w_m, img_h_m = load_background_image(image_path, cfg)
@@ -287,7 +289,10 @@ def animate_trajectories(
     add_legend(ax, df)
     coord_text = add_mouse_coordinates(fig, ax)
 
-    ax.set_title("Trajectoires - affichage animé")
+    if video_name is not None and dataset_name is not None:
+        ax.set_title(f"Trajectories visualization - {dataset_name} - {video_name}")
+    else:
+        ax.set_title("Trajectories visualization (video )")
 
     time_text = ax.text(
         0.01, 0.89,
@@ -299,7 +304,7 @@ def animate_trajectories(
     )
 
     status_text = ax.text(
-        0.01, 0.83,
+        0.01, 0.75,
         "PLAY",
         transform=ax.transAxes,
         fontsize=11,
@@ -327,7 +332,7 @@ def animate_trajectories(
 
         line, = ax.plot([], [], color=color, linewidth=ANIM_LINEWIDTH, alpha=ANIM_ALPHA)
         # point = ax.scatter([], [], s=AGENT_MARKER_SIZE, color=color, edgecolors="black", zorder=5)
-        is_highlight = (highlight_id is not None and object_id == object_id)
+        # is_highlight = (highlight_id is not None and object_id == object_id)
 
         point = ax.scatter(
             [],
@@ -392,7 +397,7 @@ def animate_trajectories(
             current_frame["idx"] = frame_idx
 
         t = time_grid[frame_idx]
-        time_text.set_text(f"Temps = {t:.3f}")
+        time_text.set_text(f"Time = {t:.2f} frame ({t/fps:.2f}s)")
 
         status_text.set_text("PAUSE" if paused["value"] else "PLAY")
 
@@ -424,7 +429,7 @@ def animate_trajectories(
             point_artists[object_id].set_offsets(np.array([[x, y]]))
 
             if show_ids:
-                id_artists[object_id].set_position((x, y))
+                id_artists[object_id].set_position((x + 0.25, y - 0.25))
                 id_artists[object_id].set_text(str(object_id))
                 id_artists[object_id].set_visible(True)
             else:

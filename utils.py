@@ -85,12 +85,12 @@ def frames_to_intervals(frames):
 
 def add_time_markers(ax, intervals):
     for i, (start, end) in enumerate(intervals):
-        ax.axvline(start, color="green", linestyle="--",
-                   label="Début interaction" if i == 0 else "")
-        ax.axvline(end, color="red", linestyle="--",
-                   label="Fin interaction" if i == 0 else "")
+        # ax.axvline(start, color="green", linestyle="--",
+        #            label="Début interaction" if i == 0 else "")
+        # ax.axvline(end, color="red", linestyle="--",
+        #            label="Fin interaction" if i == 0 else "")
 
-        ax.axvspan(start, end, color="orange", alpha=0.2)
+        ax.axvspan(start, end, color="grey", alpha=0.2, label=f"Interaction ({start:.2f} - {end:.2f}, duration={end-start:.2f}s)")
 
 
 def add_spatial_markers(ax, df, ped_id, intervals):
@@ -233,14 +233,14 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
     # plot
     if plot:
         plt.figure(figsize=(10, 4))
-        plt.plot(valid_times / fps, distances, label="Distance (m)")
-        plt.axhline(distance_threshold, color="red", linestyle="--", label="Seuil interaction (5m)")
+        plt.plot(valid_times / fps, distances)
+        plt.axhline(distance_threshold, color="red", linestyle="--", label="Spatial interaction limit (5m)")
         add_time_markers(plt.gca(), intervals_plot)
         if not np.isnan(t_min_plot):
-            plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Distance minimale = {dist_min:.2f} m")
-        plt.xlabel("Temps (s)")
+            plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Min distance = {dist_min:.2f}m (at {t_min_plot:.2f}s)")
+        plt.xlabel("Time (s)")
         plt.ylabel("Distance (m)")
-        plt.title(f"Distance piéton {ped_id} - cycliste {cyc_id}")
+        plt.title(f"Distance between pedetrian {ped_id} and cyclist {cyc_id} accross time")
         plt.legend()
         plt.grid()
 
@@ -398,13 +398,13 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="
 
         plt.figure(figsize=(10, 4))
         plt.plot(valid_times/fps, angles)
-        plt.xlabel("Temps (s)")
+        plt.xlabel("Time (s)")
         plt.ylabel(f"Angle ({angle_unit})")
-        plt.title(f"Angle de direction (entre vecteurs vitesses) (cycliste {cyc_id} - piéton {ped_id})")
+        plt.title(f"Direction angle (ped {ped_id} - cyc {cyc_id})")
         if angle_unit == "deg":
-            plt.axhline(0, linestyle="--", color="black", alpha=0.5, label="Même direction (0°)")
-            plt.axhline(90, linestyle="--", color="orange", label="Perpendiculaire (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
-            plt.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
+            plt.axhline(0, linestyle="--", color="black", alpha=0.5, label="Same direction (0°)")
+            plt.axhline(90, linestyle="--", color="orange", label="Perpendicular (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
+            plt.axhline(180, linestyle="--", color="purple", label="Opposite (180°)")
         plt.grid()
         intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
         add_time_markers(plt.gca(), intervals_sec)
@@ -507,18 +507,18 @@ def compute_approach_angle(
         intervals = frames_to_intervals(frames)
 
         plt.figure(figsize=(10, 4))
-        plt.plot(valid_times/fps, angles, label="Angle d'approche")
+        plt.plot(valid_times/fps, angles)
 
         # for (t_start, t_end) in intervals:
         #     plt.axvspan(t_start, t_end, color="orange", alpha=0.3)
 
-        plt.xlabel("Temps (s)")
+        plt.xlabel("Time (s)")
         plt.ylabel(f"Angle ({angle_unit})")
-        plt.title(f"Angle d'approche (cycliste {cyc_id} - piéton {ped_id})")
+        plt.title(f"Approach angle (ped {ped_id} - cyc {cyc_id})")
         if angle_unit == "deg":
             plt.axhline(0, linestyle="--", color="black", alpha=0.5, label="Frontal (0°)")
-            plt.axhline(90, linestyle="--", color="orange", label="Croisement (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
-            plt.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
+            plt.axhline(90, linestyle="--", color="orange", label="Crossing (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
+            plt.axhline(180, linestyle="--", color="purple", label="Opposition (180°)")
         plt.grid()
         intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
         add_time_markers(plt.gca(), intervals_sec)
@@ -586,6 +586,7 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
     theta = np.arccos(cos_theta)
 
     rel_speeds = np.sqrt(speed_p**2 + speed_c**2 - 2 * speed_p * speed_c * cos_theta)
+    rel_speeds = np.maximum(rel_speeds, 0)
     rel_speeds_kmh = rel_speeds * 3.6
 
     # angle d'approche
@@ -594,26 +595,28 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
         angles = np.degrees(angles)
 
     if plot:
-        fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+        fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-        ax1, ax2, ax3 = axes
+        # ax1, ax2, ax3 = axes
+        ax1, ax2 = axes
 
         # vitesse m/s
-        ax1.plot(common_times/fps, rel_speeds, label="Vitesse relative (m/s)")
-        ax1.set_ylabel("m/s")
-        ax1.set_title("Vitesse relative")
+        ax1.plot(common_times/fps, rel_speeds)
+        ax1.set_ylabel(" Relative speed (m/s)")
+        ax1.set_title(f"Cyclist {cyc_id} relative speed compared to pedestrian {ped_id}")
         ax1.grid()
 
         # vitesse km/h
-        ax2.plot(common_times/fps, rel_speeds_kmh, label="Vitesse relative (km/h)", color="orange")
-        ax2.set_ylabel("km/h")
+        ax2.plot(common_times/fps, rel_speeds_kmh, color="orange")
+        ax2.set_ylabel("Relative speed (km/h)")
+        ax2.set_xlabel("Time (s)")
         ax2.grid()
 
         # angle
-        ax3.plot(common_times/fps, angles, label="Angle (deg)", color="green")
-        ax3.set_ylabel("Angle (°)")
-        ax3.set_xlabel("Temps (s)")
-        ax3.grid()
+        # ax3.plot(common_times/fps, angles, color="green")
+        # ax3.set_ylabel("Angle (°)")
+        # ax3.set_xlabel("Temps (s)")
+        # ax3.grid()
 
         from analysis_interactions import compute_ped_cyc_interactions_with_time
         interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
@@ -623,12 +626,13 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
 
         # Marqueurs d'interaction
         if len(interaction_times) > 0:
-            t_start = min(interaction_times)
-            t_end = max(interaction_times)
+            t_start = min(interaction_times) / fps
+            t_end = max(interaction_times) /fps
 
             for ax in axes:
-                ax.axvline(t_start/fps, color="red", linestyle="--", label="début interaction")
-                ax.axvline(t_end/fps, color="purple", linestyle="--", label="fin interaction")
+                # ax.axvline(t_start/fps, color="green", linestyle="--", label="début interaction")
+                # ax.axvline(t_end/fps, color="red", linestyle="--", label="fin interaction")
+                ax.axvspan(t_start, t_end, color="grey", alpha=0.2, label=f"Interaction ({t_start:.2f} - {t_end:.2f}, duration={t_end-t_start:.2f}s)")
 
         # pour éviter doublons de légende
         for ax in axes:
@@ -751,7 +755,7 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
                     color="red",
                     s=120,
                     marker="X",
-                    label="Point conflit")
+                    label="Conflict point")
 
         # essayer d'ajouter les flèches de direction des agents plus tard si temps
 
@@ -763,7 +767,8 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
             distance_threshold,
             color="red",
             fill=False,
-            linestyle="--"
+            linestyle="--",
+            label="Conflict zone (1m radius)"
         )
         plt.gca().add_patch(circle)
 
@@ -775,7 +780,7 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
             bbox=dict(facecolor="white", alpha=0.8)
         )
 
-        plt.title(f"Interaction PET (Ped {ped_id} / Cyc {cyc_id})")
+        plt.title(f"Post-Encroachment Time (PET) (ped {ped_id} / cyc {cyc_id})")
         plt.xlabel("x (m)")
         plt.ylabel("y (m)")
         plt.gca().invert_yaxis()
@@ -1044,6 +1049,8 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False):
         return times[:-1], ttac_values, None
 
     ttac_min = np.min(valid)
+    min_idx = np.where(ttac_values == ttac_min)[0] # index du min
+    first_time = times[:-1][min_idx[0]] / fps
 
     # classification
     def classify_ttac(x):
@@ -1067,9 +1074,10 @@ def compute_ttac(df, id_A, id_B, fps, plot=False, return_class=False):
 
         plt.figure(figsize=(8, 4))
         plt.plot(times[:-1]/fps, ttac_values)
-        plt.axhline(ttac_min, linestyle="--", label=f"min={ttac_min:.2f}")
-        plt.title(f"TTAC en fonction du temps (ped {id_A} - cyc {id_B})")
-        plt.xlabel("Temps (s)")
+        # plt.axhline(ttac_min, linestyle="--", label=f"TTAC min={ttac_min:.2f}")
+        plt.scatter(times[:-1][min_idx]/fps, ttac_values[min_idx], color="red", s=60, zorder=5, label=f"TTAC min={ttac_min:.2f}s (at {first_time:.2f}s)")
+        plt.title(f"Time To Avoided Collision Point (TTAC) during the interaction (ped {id_A} - cyc {id_B})")
+        plt.xlabel("Time (s)")
         plt.ylabel("TTAC (s)")
         add_time_markers(plt.gca(), intervals_sec)
         plt.legend()
@@ -1237,7 +1245,8 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, return_seconds=Fa
 def compute_clusters_and_hulls_over_time(df, min_samples=2,
                                          eps_dir=0.3,
                                          plot=False, fps=None,
-                                         save_gif=False, output_path="clusters.gif"):
+                                         save_gif=False, output_path="clusters.gif",
+                                         highlight_id=None):
     """
     Calcule DBSCAN + convex hull frame par frame.
 
@@ -1379,6 +1388,32 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
         def update(i):
             ax.clear()
 
+            from matplotlib.lines import Line2D
+
+            handles = [
+                Line2D([], [], marker='o', color='blue', linestyle='None',
+                    markersize=8, label='Pedestrian cluster'),
+                Line2D([], [], marker='s', color='green', linestyle='None',
+                    markersize=8, label='Cyclist cluster'),
+                Line2D([], [], color='black', linewidth=2, label='Convex hull'),
+                Line2D([], [], marker='x', color='cyan', linestyle='None',
+                    markersize=8, label='Pedestrian noise'),
+                Line2D([], [], marker='x', color='lime', linestyle='None',
+                    markersize=8, label='Cyclist noise'),
+            ]
+
+            if highlight_id is not None:
+                handles.append(
+                    Line2D([], [], marker='o',
+                        markerfacecolor='none',
+                        markeredgecolor='red',
+                        linestyle='None',
+                        markersize=10,
+                        label=f'Highlighted agent ({highlight_id})')
+                )
+
+            ax.legend(handles=handles, loc="upper right")
+
             t = times[i]
             data = history[t]
 
@@ -1425,9 +1460,13 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
 
                 # ids
                 for (x, y), aid in zip(data[name]["points"], data[name]["ids"]):
-                    ax.text(x + 0.1, y + 0.1, str(aid), fontsize=8, color=color)
+                    if aid == highlight_id:
+                        ax.scatter(x, y, s=200, facecolors="none", edgecolors="red", linewidths=2, zorder=20)
+                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=8, color=color, zorder=21)
+                    else:
+                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=8, color=color)
 
-            ax.set_title(f"Frame {t}")
+            ax.set_title(f"DBSCAN clusters and convex hulls - Frame {t} ({t/fps:.2f}s)")
             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
             ax.set_ylim(df["y_m"].max(), df["y_m"].min())
             ax.grid()
@@ -2997,3 +3036,128 @@ def compute_spatial_deviation(df_agent, inter_start, inter_end):
 
         "inertial_line_end": p1
     }
+
+
+# Fonction pour plot plusieurs 
+def plot_interaction_series(
+    series,
+    title="Interaction metrics",
+    xlabel="Time (s)",
+    ylabel_left=None,
+    ylabel_right=None,
+    interaction_intervals=None,
+    invert_y=False,
+    figsize=(10, 5),
+    grid=True,
+):
+    """
+    Affiche plusieurs séries temporelles synchronisées.
+
+    Parameters
+    ----------
+    series : list of dict
+        Chaque élément décrit une courbe.
+
+        Exemple :
+        [
+            {
+                "times": times_dist,
+                "values": distances,
+                "label": "Distance",
+                "color": "royalblue",
+                "axis": "left"
+            },
+            {
+                "times": times_angle,
+                "values": angles,
+                "label": "Approach angle",
+                "color": "darkorange",
+                "axis": "right"
+            }
+        ]
+
+    interaction_intervals : list[(t_start, t_end)], optional
+        Intervalles d'interaction à mettre en évidence.
+
+    invert_y : bool
+        Inverse l'axe Y gauche si nécessaire.
+    """
+
+    fig, ax_left = plt.subplots(figsize=figsize)
+    ax_right = None
+
+    handles = []
+    labels = []
+
+    # ==========================================================
+    # Courbes
+    # ==========================================================
+
+    for s in series:
+
+        axis = s.get("axis", "left")
+
+        if axis == "left":
+            ax = ax_left
+        else:
+            if ax_right is None:
+                ax_right = ax_left.twinx()
+            ax = ax_right
+
+        line, = ax.plot(
+            s["times"],
+            s["values"],
+            color=s.get("color", None),
+            linewidth=s.get("linewidth", 2),
+            linestyle=s.get("linestyle", "-"),
+            marker=s.get("marker", None),
+            label=s.get("label", "")
+        )
+
+        handles.append(line)
+        labels.append(s.get("label", ""))
+
+    # ==========================================================
+    # Zones d'interaction
+    # ==========================================================
+
+    if interaction_intervals is not None:
+
+        for start, end in interaction_intervals:
+            ax_left.axvspan(
+                start,
+                end,
+                color="grey",
+                alpha=0.15,
+                zorder=0
+            )
+
+    # ==========================================================
+    # Axes
+    # ==========================================================
+
+    ax_left.set_title(title)
+    ax_left.set_xlabel(xlabel)
+
+    if ylabel_left is not None:
+        ax_left.set_ylabel(ylabel_left)
+
+    if ax_right is not None and ylabel_right is not None:
+        ax_right.set_ylabel(ylabel_right)
+
+    if invert_y:
+        ax_left.invert_yaxis()
+
+    if grid:
+        ax_left.grid(alpha=0.3)
+
+    # ==========================================================
+    # Légende
+    # ==========================================================
+
+    ax_left.legend(handles, labels)
+
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax_left, ax_right

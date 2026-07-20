@@ -400,7 +400,9 @@ def resample_dataset(df, fps, target_dt=0.4):
                 COL_ID: agent_id,
                 "x_m": x,
                 "y_m": y,
-                COL_CLASS: g[COL_CLASS].iloc[0]
+                COL_CLASS: g[COL_CLASS].iloc[0],
+                "track_id": agent_id,
+                "__file__": g["__file__"].iloc[0]
             }
 
             all_rows.append(row)

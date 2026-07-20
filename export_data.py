@@ -2,6 +2,8 @@ import os
 import glob
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from config import *
 
 ###############################################
@@ -267,12 +269,766 @@ def export_interactions_to_csv(
     # DataFrame + export
     df_out = pd.DataFrame(rows)
 
-    df_out.to_csv(output_path, index=False)
-
-    print(f"CSV sauvegardé : {output_path}")
+    if output_path is not None:
+        df_out.to_csv(output_path, index=False)
+        print(f"CSV sauvegardé : {output_path}")
 
     return df_out
 
+
+
+def compute_interaction_statistics(csv_path, save_xlsx):
+
+    df = pd.read_csv(csv_path)
+
+    df = df[(df["type_ped"] == "ped_noise") & (df["type_cyc"] == "cyc_noise")]
+
+    # 1. % cycliste plus réactif que piéton
+
+    # reactive_stats = (
+    #     df.groupby(["type_ped", "type_cyc", "interaction_label"])
+    #     .agg(n=("interaction_id", "count"), pct_cyc_more_reactive=("most_reactive_agent", lambda x: 100 * (x == "cyc").mean())).reset_index()
+    # )
+
+    print("\n Agent le plus réactif par interaction:")
+
+    reactive_stats = (
+        df.groupby("interaction_label")
+        .agg(
+            nb_interactions=("interaction_id", "count"),
+            pct_cyc_reactive=(
+                "most_reactive_agent",
+                lambda x: 100 * (x == "cyc").mean()
+            ),
+            pct_ped_reactive=(
+                "most_reactive_agent",
+                lambda x: 100 * (x == "ped").mean()
+            )
+        )
+        .reset_index()
+    )
+
+    print(reactive_stats.round(2))
+
+    # 2. Variabilité vitesse
+
+    # speed_ped = (
+    #     df["speed_var_ped"]
+    #     .value_counts(normalize=True)
+    #     .mul(100)
+    #     .rename("percent")
+    #     .reset_index(names="speed_var_ped")
+    # )
+
+    # speed_cyc = (
+    #     df["speed_var_cyc"]
+    #     .value_counts(normalize=True)
+    #     .mul(100)
+    #     .rename("percent")
+    #     .reset_index(names="speed_var_cyc")
+    # )
+
+   
+
+    speed_ped_stats = pd.crosstab(
+        df["interaction_label"],
+        df["speed_var_ped"],
+        normalize="index"
+    ) * 100
+
+    speed_cyc_stats = pd.crosstab(
+        df["interaction_label"],
+        df["speed_var_cyc"],
+        normalize="index"
+    ) * 100
+    
+    print("\n PED - Variabilité de vitesse par interaction:")
+    print(speed_ped_stats.round(1))
+    print("\n CYC - Variabilité de vitesse par interaction:")
+    print(speed_cyc_stats.round(1))
+
+    # 3. Variabilité spatiale
+
+    # spatial_ped = (
+    #     df["spatial_var_ped"]
+    #     .value_counts(normalize=True)
+    #     .mul(100)
+    #     .rename("percent")
+    #     .reset_index(names="spatial_var_ped")
+    # )
+
+    # spatial_cyc = (
+    #     df["spatial_var_cyc"]
+    #     .value_counts(normalize=True)
+    #     .mul(100)
+    #     .rename("percent")
+    #     .reset_index(names="spatial_var_cyc")
+    # )
+
+    spatial_ped_stats = pd.crosstab(
+        df["interaction_label"],
+        df["spatial_var_ped"],
+        normalize="index"
+    ) * 100
+
+    spatial_cyc_stats = pd.crosstab(
+        df["interaction_label"],
+        df["spatial_var_cyc"],
+        normalize="index"
+    ) * 100
+
+    print("\n PED - Variabilité spatiale par interaction:")
+    print(spatial_ped_stats.round(1))
+    print("\n CYC - Variabilité spatiale par interaction:")
+    print(spatial_cyc_stats.round(1))
+
+    # 4. Combinaisons vitesse
+
+    # speed_comb = (
+    #     pd.crosstab(
+    #         df["speed_var_ped"],
+    #         df["speed_var_cyc"],
+    #         normalize="all"
+    #     ) * 100
+    # )
+
+    print("\n Combinaisons vitesses par interaction:")
+    for interaction in sorted(df["interaction_label"].unique()):
+
+        sub = df[df["interaction_label"] == interaction]
+
+        table = pd.crosstab(
+            sub["speed_var_ped"],
+            sub["speed_var_cyc"],
+            normalize="all"
+        ) * 100
+
+        print("\n")
+        print("-"*50)
+        print(interaction)
+        print(table.round(1))
+
+    # 5. Combinaisons spatiales
+
+    # spatial_comb = (
+    #     pd.crosstab(
+    #         df["spatial_var_ped"],
+    #         df["spatial_var_cyc"],
+    #         normalize="all"
+    #     ) * 100
+    # )
+
+    print("\n Combinaisons spatiales par interaction:")
+    for interaction in sorted(df["interaction_label"].unique()):
+        sub = df[df["interaction_label"] == interaction]
+
+        table = pd.crosstab(
+            sub["spatial_var_ped"],
+            sub["spatial_var_cyc"],
+            normalize="all"
+        ) * 100
+
+        print("\n")
+        print("-"*50)
+        print(interaction)
+        print(table.round(1))
+    
+    if save_xlsx:
+        with pd.ExcelWriter("interaction_ctv_statistics.xlsx") as writer:
+
+            reactive_stats.to_excel(
+                writer,
+                sheet_name="reactive",
+                index=False
+            )
+
+            speed_ped_stats.to_excel(
+                writer,
+                sheet_name="speed_ped"
+            )
+
+            speed_cyc_stats.to_excel(
+                writer,
+                sheet_name="speed_cyc"
+            )
+
+            spatial_ped_stats.to_excel(
+                writer,
+                sheet_name="spatial_ped"
+            )
+
+            spatial_cyc_stats.to_excel(
+                writer,
+                sheet_name="spatial_cyc"
+            )
+
+    return {
+        "reactive": reactive_stats,
+        "speed_ped": speed_ped_stats,
+        "speed_cyc": speed_cyc_stats,
+        "spatial_ped": spatial_ped_stats,
+        "spatial_cyc": spatial_cyc_stats
+    }
+
+
+def compute_interaction_statistics_bis(csv_path):
+    df = pd.read_csv(csv_path)
+
+    # Filtrer uniquement ped_noise / cyc_noise
+    df = df[
+        (df["type_ped"] == "ped_noise") &
+        (df["type_cyc"] == "cyc_noise")
+    ].copy()
+
+
+    def percentage_table(df, group_col, value_col):
+        """
+        Pour chaque type d'interaction,
+        calcule les pourcentages des valeurs de value_col.
+        """
+        counts = (
+            df.groupby(group_col)[value_col]
+            .value_counts(normalize=True)
+            .mul(100)
+            .rename("percent")
+            .reset_index()
+        )
+
+        return counts.pivot(
+            index=group_col,
+            columns=value_col,
+            values="percent"
+        ).fillna(0).round(2)
+
+
+    # ==========================
+    # Agent le plus réactif
+    # ==========================
+
+    reactive = percentage_table(
+        df,
+        "interaction_label",
+        "most_reactive_agent"
+    )
+
+    # ==========================
+    # Variabilité vitesse
+    # ==========================
+
+    speed_ped = percentage_table(
+        df,
+        "interaction_label",
+        "speed_var_ped"
+    )
+
+    speed_cyc = percentage_table(
+        df,
+        "interaction_label",
+        "speed_var_cyc"
+    )
+
+    # ==========================
+    # Variabilité spatiale
+    # ==========================
+
+    spatial_ped = percentage_table(
+        df,
+        "interaction_label",
+        "spatial_var_ped"
+    )
+
+    spatial_cyc = percentage_table(
+        df,
+        "interaction_label",
+        "spatial_var_cyc"
+    )
+
+    # ==========================
+    # Combinaisons vitesse
+    # ==========================
+
+    df["speed_combination"] = (
+        df["speed_var_ped"] + " / " +
+        df["speed_var_cyc"]
+    )
+
+    speed_comb = percentage_table(
+        df,
+        "interaction_label",
+        "speed_combination"
+    )
+
+    # ==========================
+    # Combinaisons spatiales
+    # ==========================
+
+    df["spatial_combination"] = (
+        df["spatial_var_ped"] + " / " +
+        df["spatial_var_cyc"]
+    )
+
+    spatial_comb = percentage_table(
+        df,
+        "interaction_label",
+        "spatial_combination"
+    )
+
+    # ==========================
+    # Export Excel
+    # ==========================
+
+    with pd.ExcelWriter(
+        "stats_inter_ctv.xlsx",
+        engine="openpyxl"
+    ) as writer:
+
+        reactive.to_excel(writer, sheet_name="reactive_agent")
+        speed_ped.to_excel(writer, sheet_name="speed_ped")
+        speed_cyc.to_excel(writer, sheet_name="speed_cyc")
+        spatial_ped.to_excel(writer, sheet_name="spatial_ped")
+        spatial_cyc.to_excel(writer, sheet_name="spatial_cyc")
+        speed_comb.to_excel(writer, sheet_name="speed_combinations")
+        spatial_comb.to_excel(writer, sheet_name="spatial_combinations")
+
+    print("Excel généré.")
+
+
+def compute_interaction_statistics_final(csv_path, save_xlsx=True, name_output="res"):
+
+    df = pd.read_csv(csv_path)
+
+    # Seulement les interactions ped_noise / cyc_noise
+    df = df[
+        (df["type_ped"] == "ped_noise") &
+        (df["type_cyc"] == "cyc_noise")
+    ].copy()
+
+    ####################################################
+    # Agent le plus réactif (selon la variation de vitesse)
+    ####################################################
+
+    print("\nAgent le plus réactif par interaction")
+
+    reactive_stats = (
+        df.groupby("interaction_label")
+        .agg(
+            nb_interactions=("interaction_id", "count"),
+            pct_cyc_reactive=(
+                "most_reactive_agent",
+                lambda x: 100 * (x == "cyc").mean()
+            ),
+            pct_ped_reactive=(
+                "most_reactive_agent",
+                lambda x: 100 * (x == "ped").mean()
+            )
+        )
+        .reset_index()
+    )
+
+    print(reactive_stats.round(2))
+
+    ####################################################
+    # Variabilité vitesse
+    ####################################################
+
+    speed_ped_stats = pd.crosstab(
+        df["interaction_label"],
+        df["speed_var_ped"],
+        normalize="index"
+    ) * 100
+
+    speed_cyc_stats = pd.crosstab(
+        df["interaction_label"],
+        df["speed_var_cyc"],
+        normalize="index"
+    ) * 100
+
+    print("\nPED - Variabilité vitesse")
+    print(speed_ped_stats.round(1))
+
+    print("\nCYC - Variabilité vitesse")
+    print(speed_cyc_stats.round(1))
+
+
+    ####################################################
+    # Distance minimale
+    ####################################################
+    df["dist_min"] = pd.to_numeric(df["dist_min"], errors='coerce')
+    dist_stats = (
+        df.groupby("interaction_label")
+        .agg(
+            mean_dist=("dist_min","mean"),
+            median_dist=("dist_min","median"),
+            std_dist=("dist_min","std"),
+            n=('dist_min','count')
+        ).round(2))
+    print("\nDistances minimales")
+    print(dist_stats)
+
+    ####################################################
+    # Variabilité spatiale
+    ####################################################
+
+    spatial_ped_stats = pd.crosstab(
+        df["interaction_label"],
+        df["spatial_var_ped"],
+        normalize="index"
+    ) * 100
+
+    spatial_cyc_stats = pd.crosstab(
+        df["interaction_label"],
+        df["spatial_var_cyc"],
+        normalize="index"
+    ) * 100
+
+    print("\nPED - Variabilité spatiale")
+    print(spatial_ped_stats.round(1))
+
+    print("\nCYC - Variabilité spatiale")
+    print(spatial_cyc_stats.round(1))
+
+    ####################################################
+    # Combinaisons vitesse (piéton/cycliste)
+    ####################################################
+
+    speed_comb_dict = {}
+
+    print("\nCombinaisons de vitesse")
+
+    for interaction in sorted(df["interaction_label"].unique()):
+
+        sub = df[df["interaction_label"] == interaction].copy()
+
+        table = (
+            pd.crosstab(
+                sub["speed_var_ped"],
+                sub["speed_var_cyc"],
+                normalize="all"
+            ) * 100
+        ).round(1)
+
+        speed_comb_dict[interaction] = table
+
+        print("\n" + "-" * 50)
+        print(interaction)
+        print(table)
+
+    ####################################################
+    # Combinaisons spatiales (piéton/cycliste)
+    ####################################################
+
+    spatial_comb_dict = {}
+
+    print("\nCombinaisons spatiales")
+
+    for interaction in sorted(df["interaction_label"].unique()):
+
+        sub = df[df["interaction_label"] == interaction].copy()
+
+        table = (
+            pd.crosstab(
+                sub["spatial_var_ped"],
+                sub["spatial_var_cyc"],
+                normalize="all"
+            ) * 100
+        ).round(1)
+
+        spatial_comb_dict[interaction] = table
+
+        print("\n" + "-" * 50)
+        print(interaction)
+        print(table)
+        
+    ####################################################
+    # PET
+    ####################################################
+    df["pet_val"] = pd.to_numeric(df["pet_val"],errors="coerce")
+    pet_stats=(
+        df.groupby("interaction_label")
+        ['pet_val']
+        .describe()
+    )
+    print("\nAnalyse PET par classe d'intercation:")
+    print(pet_stats)
+    pet_label_stats = pd.crosstab(df["interaction_label"],df["pet"],normalize="index") * 100
+    print("\nPET labels (%)")
+    print(pet_label_stats.round(1))
+
+    ####################################################
+    # TTAC
+    #################################################### 
+    df["ttac_min"] = pd.to_numeric(df["ttac_min"], errors="coerce")
+    ttac_stats=(
+        df.groupby("interaction_label")
+        ['ttac_min']
+        .describe()
+    )
+    print("\nAnalyse TTAC par classe d'intercation:")
+    print(ttac_stats)
+    ttac_label_stats = pd.crosstab(df["interaction_label"],df["ttac"],normalize="index") * 100
+    print("\nTTAC labels (%)")
+    print(ttac_label_stats.round(1))
+
+    ####################################################
+    # Version compacte pour Excel
+    ####################################################
+
+    def percentage_table(df, group_col, value_col):
+
+        counts = (
+            df.groupby(group_col)[value_col]
+            .value_counts(normalize=True)
+            .mul(100)
+            .rename("percent")
+            .reset_index()
+        )
+
+        return (
+            counts.pivot(
+                index=group_col,
+                columns=value_col,
+                values="percent"
+            )
+            .fillna(0)
+            .round(2)
+        )
+
+    reactive_excel = percentage_table(
+        df,
+        "interaction_label",
+        "most_reactive_agent"
+    )
+
+    speed_comb_excel = percentage_table(
+        df.assign(
+            speed_combination=
+            df["speed_var_ped"] + " / " +
+            df["speed_var_cyc"]
+        ),
+        "interaction_label",
+        "speed_combination"
+    )
+
+    spatial_comb_excel = percentage_table(
+        df.assign(
+            spatial_combination=
+            df["spatial_var_ped"] + " / " +
+            df["spatial_var_cyc"]
+        ),
+        "interaction_label",
+        "spatial_combination"
+    )
+
+
+    ####################################################
+    # Graphes
+    ####################################################
+    # Heatmap combinaison vitesse
+    speed_heat = pd.crosstab(
+        df["speed_var_ped"],
+        df["speed_var_cyc"],
+        normalize='all'
+    )*100
+    # df_speed = df[
+    #     (df["speed_var_ped"] != "UNKNOWN") &
+    #     (df["speed_var_cyc"] != "UNKNOWN")
+    # ].copy()
+
+    # speed_heat = pd.crosstab(
+    #     df_speed["speed_var_ped"],
+    #     df_speed["speed_var_cyc"],
+    #     normalize='all'
+    # ) * 100
+    plt.figure(figsize=(6,5))
+    sns.heatmap(speed_heat,annot=True,fmt=".1f",cmap='viridis')
+    plt.title("Pedestrian and cyclist speed variation combinations")
+    plt.show()
+
+    # Heatmap combinaisons variations spatiales
+    spatial_heat = pd.crosstab(
+        df["spatial_var_ped"],
+        df["spatial_var_cyc"],
+        normalize='all'
+    )*100
+    plt.figure(figsize=(6,5))
+    sns.heatmap(
+        spatial_heat,
+        annot=True,
+        fmt=".1f",
+        cmap='Greens'
+    )
+    plt.show()
+
+    # Heatmap vitesse / spatial
+    df['speed_pair']=(
+        df.speed_var_ped
+        +" / "+
+        df.speed_var_cyc
+    )
+
+    df['spatial_pair']=(
+        df.spatial_var_ped
+        +" / "+
+        df.spatial_var_cyc
+    )
+
+    speed_spatial_heat = pd.crosstab(
+        df['speed_pair'],
+        df['spatial_pair'],
+        normalize='all'
+    )*100
+    plt.figure(figsize=(12,8))
+    sns.heatmap(
+        speed_spatial_heat,
+        cmap='Reds',
+        annot=True,
+        fmt=".1f"
+    )
+    plt.show()
+
+    # Histogrammes pour les valeurs PET et TTAC
+    for inter in df.interaction_label.unique():
+        sub=df[
+            df.interaction_label==inter
+        ]
+        plt.figure()
+        plt.hist(
+            sub['pet_val'],
+            bins=20
+        )
+        plt.title("Histogram PET - " + inter)
+        plt.xlabel("PET")
+        plt.show()
+
+        plt.figure()
+        plt.hist(
+            sub['ttac_min'],
+            bins=20
+        )
+        plt.title("Histogram TTAC - " + inter)
+        plt.xlabel("TTAC")
+        plt.show()
+
+    # Graphe dist min VS déviation spatial
+    mapping={
+        'LINEAR':0,
+        'SLIGHT_DEVIATION':1,
+        'MODERATE_DEVIATION':2,
+        'HIGH_DEVIATION':3
+    }
+    df['dev_ped']=df.spatial_var_ped.map(mapping)
+    df['dev_cyc']=df.spatial_var_cyc.map(mapping)
+    corr_ped=df['dist_min'].corr(df['dev_ped'])
+    corr_cyc=df['dist_min'].corr(df['dev_cyc'])
+    print("\nCorrelation min distance - ped spatial deviation :\n", corr_ped)
+    print("\nCorrelation min distance - cyc spatial deviation :\n", corr_cyc)
+    plt.scatter(df['dist_min'], df['dev_cyc'])
+    plt.title("Correlation between spatial deviation and minimal inter-agent distance")
+    plt.xlabel("Minimal inter-agent distance (m)")
+    plt.ylabel("Spatial deviation")
+    plt.show()
+
+    ####################################################
+    # Export Excel (en plus des print)
+    ####################################################
+
+    if save_xlsx:
+
+        with pd.ExcelWriter(
+            f"{name_output}.xlsx",
+            engine="openpyxl"
+        ) as writer:
+
+            reactive_stats.to_excel(
+                writer,
+                sheet_name="reactive_summary",
+                index=False
+            )
+
+            reactive_excel.to_excel(
+                writer,
+                sheet_name="reactive_agent"
+            )
+
+            speed_ped_stats.round(2).to_excel(
+                writer,
+                sheet_name="speed_ped"
+            )
+
+            speed_cyc_stats.round(2).to_excel(
+                writer,
+                sheet_name="speed_cyc"
+            )
+
+            spatial_ped_stats.round(2).to_excel(
+                writer,
+                sheet_name="spatial_ped"
+            )
+
+            spatial_cyc_stats.round(2).to_excel(
+                writer,
+                sheet_name="spatial_cyc"
+            )
+
+            speed_comb_excel.to_excel(
+                writer,
+                sheet_name="speed_combinations"
+            )
+
+            speed_heat.to_excel(
+                writer,
+                sheet_name="speed_heatmap"
+            )
+
+            spatial_comb_excel.to_excel(
+                writer,
+                sheet_name="spatial_combinations"
+            )
+
+            spatial_heat.to_excel(
+                writer,
+                sheet_name="spatial_heatmap"
+            )
+
+            dist_stats.to_excel(
+                writer,
+                sheet_name="distance_stats"
+            )
+
+            pet_stats.to_excel(
+                writer,
+                sheet_name='PET'
+            )
+
+            pet_label_stats.to_excel(
+                writer,
+                sheet_name="pet_label"
+            )
+
+            ttac_stats.to_excel(
+                writer,
+                sheet_name='TTAC'
+            )
+
+            ttac_label_stats.to_excel(
+                writer,
+                sheet_name="ttac_label"
+            )
+
+        print(f"\nExcel généré : {name_output}.xlsx")
+
+    return {
+        "reactive": reactive_stats,
+        "speed_ped": speed_ped_stats,
+        "speed_cyc": speed_cyc_stats,
+        "spatial_ped": spatial_ped_stats,
+        "spatial_cyc": spatial_cyc_stats,
+        "speed_comb": speed_comb_excel,
+        "spatial_comb": spatial_comb_excel,
+        "distance_stats": dist_stats,
+        "pet_stats": pet_stats,
+        "ttac_stats": ttac_stats
+    }
 
 # Pour FlowChain
 

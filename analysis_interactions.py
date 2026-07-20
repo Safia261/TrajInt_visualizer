@@ -150,12 +150,7 @@ def analyze_car_vru_distances(df):
     return distances
 
 
-def analyze_speeds(
-    df,
-    cfg,
-    agent_ids=None,
-    classes=None
-):
+def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
     """
     Fonciton pour analyser la vitesse d'un ou plusieurs au cours de leur trajectoire.
     """
@@ -216,46 +211,66 @@ def analyze_speeds(
     if len(data) == 0:
         print("Pas de données exploitables")
         return
+    
+    # Intervalles d'interaction (uniquement si un piéton et un cycliste sont sélectionnés)
+    intervals_sec = None
+
+    if len(selected_agents) == 2:
+        ped_ids = [aid for aid, cls in selected_agents if cls == 1]
+        cyc_ids = [aid for aid, cls in selected_agents if cls == 2]
+
+        if len(ped_ids) == 1 and len(cyc_ids) == 1:
+            from analysis_interactions import compute_ped_cyc_interactions_with_time
+
+            interactions = compute_ped_cyc_interactions_with_time(df)
+
+            pair = tuple(sorted((ped_ids[0], cyc_ids[0])))
+            frames = interactions.get(pair, [])
+
+            intervals = frames_to_intervals(frames)
+            intervals_sec = [(s /fps, e / fps) for s, e in intervals]
 
     # Plot
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
 
-    ax_hist = axes[0]
-    ax_curve = axes[1]
-    ax_curve_kmh = axes[2]
+    # ax_hist = axes[2]
+    ax_curve = axes[0]
+    ax_curve_kmh = axes[1]
 
     # Histogrammes par classe (km/h)
-    speeds_by_class = {}
+    # speeds_by_class = {}
 
-    for d in data:
-        cls = d["class"]
-        speeds_by_class.setdefault(cls, []).extend(d["speeds_kmh"])
+    # for d in data:
+    #     cls = d["class"]
+    #     speeds_by_class.setdefault(cls, []).extend(d["speeds_kmh"])
 
-    for cls, speeds in speeds_by_class.items():
-        speeds = np.array(speeds)
+    # for cls, speeds in speeds_by_class.items():
+    #     speeds = np.array(speeds)
 
-        label = CLASS_NAMES.get(cls, f"class {cls}")
-        color = CLASS_COLORS.get(cls, None)
+    #     label = CLASS_NAMES.get(cls, f"class {cls}")
+    #     color = CLASS_COLORS.get(cls, None)
 
-        ax_hist.hist(
-            speeds,
-            bins=30,
-            alpha=0.5,
-            label=label,
-            color=color
-        )
+    #     ax_hist.hist(
+    #         speeds,
+    #         bins=30,
+    #         alpha=0.5,
+    #         label=label,
+    #         color=color
+    #     )
 
-        print(f"\n=== {label} ===")
-        print(f"Nb mesures : {len(speeds_kmh)}")
-        print(f"Min : {speeds.min():.2f} km/h")
-        print(f"Max : {speeds.max():.2f} km/h")
-        print(f"Moy : {speeds.mean():.2f} km/h")
+    #     print(f"\n=== {label} ===")
+    #     print(f"Nb mesures : {len(speeds_kmh)}")
+    #     print(f"Min : {speeds.min():.2f} km/h")
+    #     print(f"Max : {speeds.max():.2f} km/h")
+    #     print(f"Moy : {speeds.mean():.2f} km/h")
 
-    ax_hist.set_title("Distribution des vitesses")
-    ax_hist.set_xlabel("Vitesse (km/h)")
-    ax_hist.set_ylabel("Fréquence")
-    ax_hist.legend()
-    ax_hist.grid()
+    # ax_hist.set_title("Distribution des vitesses")
+    # ax_hist.set_xlabel("Vitesse (km/h)")
+    # ax_hist.set_ylabel("Fréquence")
+    # ax_hist.legend()
+    # ax_hist.grid()
+
+    from statsmodels.nonparametric.smoothers_lowess import lowess # pour lisser les courbes et visualiser les tendances globales
 
     # courbes individuelles (m/s)
     for d in data:
@@ -271,7 +286,7 @@ def analyze_speeds(
         label = f"{CLASS_NAMES.get(cls)} ID={aid}"
 
         ax_curve.plot(
-            times,
+            times/fps,
             speeds,
             label=label,
             color=color,
@@ -279,9 +294,17 @@ def analyze_speeds(
             linewidth=2
         )
 
-    ax_curve.set_title("Évolution des vitesses")
-    ax_curve.set_xlabel("Temps")
-    ax_curve.set_ylabel("Vitesse (m/s)")
+        smooth = lowess(speeds, times/fps,frac=0.08)
+        if color == "tab:blue": # bleu -> piéton
+            ax_curve.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="black", label="Ped smoothed speed")
+        elif color == "tab:green":
+            ax_curve.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Cyc smoothed speed")
+
+    ax_curve.set_title("Speed evolution (m/s)")
+    ax_curve.set_xlabel("Time (s)")
+    ax_curve.set_ylabel("Speed (m/s)")
+    if intervals_sec is not None:
+        add_time_markers(ax_curve, intervals_sec)
     ax_curve.legend()
     ax_curve.grid()
 
@@ -296,16 +319,24 @@ def analyze_speeds(
         label = f"{CLASS_NAMES.get(cls)} ID={aid}"
 
         ax_curve_kmh.plot(
-            times,
+            times/fps,
             speeds_kmh,
             label=label,
             color=color,
             linewidth=2
         )
 
-    ax_curve_kmh.set_title("Évolution des vitesses")
-    ax_curve_kmh.set_xlabel("Temps")
-    ax_curve_kmh.set_ylabel("Vitesse (km/h)")
+        smooth = lowess(speeds_kmh, times/fps,frac=0.08)
+        if color == "tab:blue": # bleu -> piéton
+            ax_curve_kmh.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="black", label="Ped smoothed speed")
+        elif color == "tab:green":
+            ax_curve_kmh.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Cyc smoothed speed")
+
+    ax_curve_kmh.set_title("Speed evolution (km/h)")
+    ax_curve_kmh.set_xlabel("Time (s)")
+    ax_curve_kmh.set_ylabel("Speed (km/h)")
+    if intervals_sec is not None:
+        add_time_markers(ax_curve_kmh, intervals_sec)
     ax_curve_kmh.legend()
     ax_curve_kmh.grid()
 
@@ -504,6 +535,8 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
 
     start = event["start"]
     end = event["end"]
+    print("Début : ", start, start/fps)
+    print("End : ", end, end/fps)
 
     if len(ids_A) != 1 or len(ids_B) != 1:
         return None  # juste par sécurité
@@ -527,6 +560,30 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
     if t_app is not None:
         mask_app = (t_app >= start) & (t_app <= end)
         angles_app_i = angles_app[mask_app]
+
+    if plot:
+        plot_interaction_series(
+        series=[
+            {
+                "times": times/fps,
+                "values": distances,
+                "label": "Distance",
+                "color": "royalblue",
+                "axis": "left"
+            },
+            {
+                "times": t_app/fps,
+                "values": angles_app,
+                "label": "Approach angle",
+                "color": "darkorange",
+                "axis": "right"
+            }
+        ],
+        interaction_intervals=[(start/fps, end/fps)],
+        title="Pedestrian-Cyclist interaction",
+        ylabel_left="Distance (m)",
+        ylabel_right="Angle (°)"
+        )
 
     # VITESSE RELATIVE
     t_rel, _, rel_speeds_kmh, _, _ = compute_relative_speed(df, id_A, id_B, fps, plot=plot)
@@ -1099,11 +1156,11 @@ def classify_relative_position_series(rel_positions):
     back = np.sum((angles > 135) | (angles < -135))
 
     if front > side and front > back:
-        label = "FRONT_INTERACTION"
+        label = "FRONT_INTERACTION" # cycliste derrière le piéton car l'interaction se déroule en face de lui
     elif side > front and side > back:
         label = "SIDE_INTERACTION"
     else:
-        label = "REAR_INTERACTION"
+        label = "REAR_INTERACTION" # cycliste devant le piéton car l'interaction se déroule derrière lui
 
     return {
         "label_main": label,
