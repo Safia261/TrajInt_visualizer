@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from config import *
 from utils import *
+from statsmodels.nonparametric.smoothers_lowess import lowess # pour lisser les courbes et visualiser les tendances globales
 
 
 def analyze_initial_nb_traj_interactions(df, verbose=True):
@@ -231,84 +232,32 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
             intervals_sec = [(s /fps, e / fps) for s, e in intervals]
 
     # Plot
-    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-
-    # ax_hist = axes[2]
-    ax_curve = axes[0]
-    ax_curve_kmh = axes[1]
-
-    # Histogrammes par classe (km/h)
-    # speeds_by_class = {}
-
-    # for d in data:
-    #     cls = d["class"]
-    #     speeds_by_class.setdefault(cls, []).extend(d["speeds_kmh"])
-
-    # for cls, speeds in speeds_by_class.items():
-    #     speeds = np.array(speeds)
-
-    #     label = CLASS_NAMES.get(cls, f"class {cls}")
-    #     color = CLASS_COLORS.get(cls, None)
-
-    #     ax_hist.hist(
-    #         speeds,
-    #         bins=30,
-    #         alpha=0.5,
-    #         label=label,
-    #         color=color
-    #     )
-
-    #     print(f"\n=== {label} ===")
-    #     print(f"Nb mesures : {len(speeds_kmh)}")
-    #     print(f"Min : {speeds.min():.2f} km/h")
-    #     print(f"Max : {speeds.max():.2f} km/h")
-    #     print(f"Moy : {speeds.mean():.2f} km/h")
-
-    # ax_hist.set_title("Distribution des vitesses")
-    # ax_hist.set_xlabel("Vitesse (km/h)")
-    # ax_hist.set_ylabel("Fréquence")
-    # ax_hist.legend()
-    # ax_hist.grid()
-
-    from statsmodels.nonparametric.smoothers_lowess import lowess # pour lisser les courbes et visualiser les tendances globales
-
+    fig, ax_ms = plt.subplots(figsize=(18, 6))
+    
     # courbes individuelles (m/s)
     for d in data:
         aid = d["id"]
         cls = d["class"]
         times = d["times"]
-        speeds = d["speeds_ms"]
+        speeds_ms = d["speeds_ms"]
 
         color = CLASS_COLORS.get(cls, "black")
-        # linestyle = "-" if cls == 1 else "--"
-        # attention pas de différenciation entre les piétons entre eux, et entre les cyclistes entre eux...
+        label = f"{CLASS_NAMES.get(cls)} {aid} speed"
 
-        label = f"{CLASS_NAMES.get(cls)} ID={aid}"
+        ax_ms.plot(times/fps, speeds_ms, label=label, color=color)
 
-        ax_curve.plot(
-            times/fps,
-            speeds,
-            label=label,
-            color=color,
-            # linestyle=linestyle,
-            linewidth=2
-        )
+        smooth = lowess(speeds_ms, times/fps,frac=0.05)
+        ax_ms.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Smoothed speed", alpha=0.5)
 
-        smooth = lowess(speeds, times/fps,frac=0.08)
-        if color == "tab:blue": # bleu -> piéton
-            ax_curve.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="black", label="Ped smoothed speed")
-        elif color == "tab:green":
-            ax_curve.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Cyc smoothed speed")
-
-    ax_curve.set_title("Speed evolution (m/s)")
-    ax_curve.set_xlabel("Time (s)")
-    ax_curve.set_ylabel("Speed (m/s)")
+    ax_ms.set_title("Speed evolution (m/s)")
+    ax_ms.set_xlabel("Time (s)")
+    ax_ms.set_ylabel("Speed (m/s)")
     if intervals_sec is not None:
-        add_time_markers(ax_curve, intervals_sec)
-    ax_curve.legend()
-    ax_curve.grid()
+        add_time_markers(ax_ms, intervals_sec)
+    ax_ms.grid()
 
-    # courbes individuelles (km/h)
+    # axe secondaire (km/h)
+    ax_kmh = ax_ms.twinx()
     for d in data:
         aid = d["id"]
         cls = d["class"]
@@ -316,29 +265,17 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
         speeds_kmh = d["speeds_kmh"]
 
         color = CLASS_COLORS.get(cls, "black")
-        label = f"{CLASS_NAMES.get(cls)} ID={aid}"
+        label = f"{CLASS_NAMES.get(cls)} {aid} speed"
 
-        ax_curve_kmh.plot(
-            times/fps,
-            speeds_kmh,
-            label=label,
-            color=color,
-            linewidth=2
-        )
+        ax_kmh.plot(times/fps, speeds_kmh, label=label, color=color)
 
-        smooth = lowess(speeds_kmh, times/fps,frac=0.08)
-        if color == "tab:blue": # bleu -> piéton
-            ax_curve_kmh.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="black", label="Ped smoothed speed")
-        elif color == "tab:green":
-            ax_curve_kmh.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Cyc smoothed speed")
+    ax_kmh.set_ylabel("Speed (km/h)")
 
-    ax_curve_kmh.set_title("Speed evolution (km/h)")
-    ax_curve_kmh.set_xlabel("Time (s)")
-    ax_curve_kmh.set_ylabel("Speed (km/h)")
-    if intervals_sec is not None:
-        add_time_markers(ax_curve_kmh, intervals_sec)
-    ax_curve_kmh.legend()
-    ax_curve_kmh.grid()
+    # Légende fusionnée
+    handles1, labels1 = ax_ms.get_legend_handles_labels()
+    handles2, labels2 = ax_kmh.get_legend_handles_labels()
+    by_label = dict(zip(labels1 + labels2, handles1 + handles2))
+    ax_ms.legend(by_label.values(), by_label.keys())
 
     plt.tight_layout()
     plt.show()
@@ -1033,6 +970,9 @@ def classify_direction_angle_series(angles):
 
     labels = [label_angle(x) for x in a]
     seq = compress_sequence(labels)
+
+    print("All labels : ", labels)
+    print("Compressed sequence : ", seq)
 
     # pattern temporel
     if "SAME_DIRECTION" in seq:

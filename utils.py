@@ -7,6 +7,7 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull, convex_hull_plot_2d
 from scipy.spatial.distance import cdist, directed_hausdorff
 from config import *
+from statsmodels.nonparametric.smoothers_lowess import lowess
 
 
 def compute_interaction_intervals(df, ped_id, cyc_id, fps, distance_threshold=5.0):
@@ -240,7 +241,7 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
             plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Min distance = {dist_min:.2f}m (at {t_min_plot:.2f}s)")
         plt.xlabel("Time (s)")
         plt.ylabel("Distance (m)")
-        plt.title(f"Distance between pedetrian {ped_id} and cyclist {cyc_id} accross time")
+        plt.title(f"Distance between pedestrian {ped_id} and cyclist {cyc_id} accross time")
         plt.legend()
         plt.grid()
 
@@ -326,7 +327,7 @@ def compute_velocity_vectors(g, fps, plot=False):
         
         plt.xlabel("x (m)")
         plt.ylabel("y (m)")
-        plt.title(f"Vecteurs vitesse - agent {g[COL_ID].iloc[0]}")
+        plt.title(f"Velocity vectors of agent {g[COL_ID].iloc[0]}")
         plt.gca().invert_yaxis()
         plt.grid()
         plt.legend()
@@ -339,7 +340,8 @@ def compute_velocity_vectors(g, fps, plot=False):
 
 def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="deg", plot=False, return_class=False):
     """
-    Calcule l'angle de direction entre les vecteurs vitesse du piéton et du cycliste. Indique la direction des usagers lors de l'interaction.
+    Calcule l'angle de direction entre les vecteurs vitesse du piéton et du cycliste. 
+    Indique la direction des usagers lors de l'interaction.
 
     Returns:
         times, angles
@@ -348,7 +350,7 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
 
-    # vitesses
+    # vecteurs vitesses
     t_p, vx_p, vy_p = compute_velocity_vectors(ped, fps)
     t_c, vx_c, vy_c = compute_velocity_vectors(cyc, fps)
 
@@ -408,6 +410,8 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, angle_unit="
         plt.grid()
         intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
         add_time_markers(plt.gca(), intervals_sec)
+        smooth = lowess(angles, valid_times/fps,frac=0.05)
+        plt.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed angle", alpha=0.5)
         plt.legend()
         plt.show()
 
@@ -522,6 +526,8 @@ def compute_approach_angle(
         plt.grid()
         intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
         add_time_markers(plt.gca(), intervals_sec)
+        smooth = lowess(angles, valid_times/fps,frac=0.05)
+        plt.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed angle", alpha=0.5)
         plt.legend()
         plt.show()
     
@@ -595,22 +601,21 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
         angles = np.degrees(angles)
 
     if plot:
-        fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-
-        # ax1, ax2, ax3 = axes
-        ax1, ax2 = axes
+        fig, ax1 = plt.subplots(figsize=(12, 10))
 
         # vitesse m/s
         ax1.plot(common_times/fps, rel_speeds)
-        ax1.set_ylabel(" Relative speed (m/s)")
-        ax1.set_title(f"Cyclist {cyc_id} relative speed compared to pedestrian {ped_id}")
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("Relative speed (m/s)")
+        ax1.set_title(f"Cyclist {cyc_id}'s relative speed compared to pedestrian {ped_id}")
         ax1.grid()
 
         # vitesse km/h
-        ax2.plot(common_times/fps, rel_speeds_kmh, color="orange")
+        ax2 = ax1.twinx()
+        ax2.plot(common_times/fps, rel_speeds_kmh)
+        smooth = lowess(rel_speeds_kmh, common_times/fps,frac=0.05)
+        ax2.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed speed", alpha=0.5)
         ax2.set_ylabel("Relative speed (km/h)")
-        ax2.set_xlabel("Time (s)")
-        ax2.grid()
 
         # angle
         # ax3.plot(common_times/fps, angles, color="green")
@@ -628,17 +633,13 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, angle_unit="deg", return_dis
         if len(interaction_times) > 0:
             t_start = min(interaction_times) / fps
             t_end = max(interaction_times) /fps
+            ax1.axvspan(t_start, t_end, color="grey", alpha=0.2, label=f"Interaction ({t_start:.2f} - {t_end:.2f}, duration={t_end-t_start:.2f}s)")
 
-            for ax in axes:
-                # ax.axvline(t_start/fps, color="green", linestyle="--", label="début interaction")
-                # ax.axvline(t_end/fps, color="red", linestyle="--", label="fin interaction")
-                ax.axvspan(t_start, t_end, color="grey", alpha=0.2, label=f"Interaction ({t_start:.2f} - {t_end:.2f}, duration={t_end-t_start:.2f}s)")
-
-        # pour éviter doublons de légende
-        for ax in axes:
-            handles, labels = ax.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            ax.legend(by_label.values(), by_label.keys())
+        # légende fusionnée
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        by_label = dict(zip(labels1 + labels2, handles1 + handles2))
+        ax1.legend(by_label.values(), by_label.keys())
 
         plt.tight_layout()
         plt.show()
