@@ -472,8 +472,8 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
 
     start = event["start"]
     end = event["end"]
-    print("Début : ", start, start/fps)
-    print("End : ", end, end/fps)
+    # print("Début : ", start, start/fps)
+    # print("End : ", end, end/fps)
 
     if len(ids_A) != 1 or len(ids_B) != 1:
         return None  # juste par sécurité
@@ -971,8 +971,8 @@ def classify_direction_angle_series(angles):
     labels = [label_angle(x) for x in a]
     seq = compress_sequence(labels)
 
-    print("All labels : ", labels)
-    print("Compressed sequence : ", seq)
+    # print("All labels : ", labels)
+    # print("Compressed sequence : ", seq)
 
     # pattern temporel
     if "SAME_DIRECTION" in seq:
@@ -1096,11 +1096,11 @@ def classify_relative_position_series(rel_positions):
     back = np.sum((angles > 135) | (angles < -135))
 
     if front > side and front > back:
-        label = "FRONT_INTERACTION" # cycliste derrière le piéton car l'interaction se déroule en face de lui
+        label = "FRONT_INTERACTION" # cycliste devant le piéton
     elif side > front and side > back:
         label = "SIDE_INTERACTION"
     else:
-        label = "REAR_INTERACTION" # cycliste devant le piéton car l'interaction se déroule derrière lui
+        label = "REAR_INTERACTION" # cycliste derrière le piéton
 
     return {
         "label_main": label,

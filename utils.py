@@ -1120,18 +1120,62 @@ def compute_vector_direction_series(df_agent):
     return np.array(directions), times[1:]
 
 
-def compute_directions_for_ids(df, ids, t):
+# def compute_directions_for_ids(df, ids, t):
+#     # interprétation: [1, 0]-> droite, [0, 1] -> haut, [-1, 0] -> gauche
+#     dirs = []
+#     valid_ids = []
+
+#     for aid in ids:
+#         traj = df[df[COL_ID] == aid].sort_values(COL_TIME)
+
+#         curr = traj[traj[COL_TIME] == t]
+#         prev = traj[traj[COL_TIME] == t - 1]
+
+#         if curr.empty or prev.empty:
+#             continue
+
+#         dx = curr.iloc[0]["x_m"] - prev.iloc[0]["x_m"]
+#         dy = curr.iloc[0]["y_m"] - prev.iloc[0]["y_m"]
+
+#         norm = np.hypot(dx, dy)
+#         if norm == 0:
+#             continue
+
+#         dirs.append([dx / norm, dy / norm])
+#         valid_ids.append(aid)
+
+#     return np.array(dirs), np.array(valid_ids)
+
+def compute_directions_for_ids(df, ids, t, max_gap_frame=2):
     # interprétation: [1, 0]-> droite, [0, 1] -> haut, [-1, 0] -> gauche
     dirs = []
     valid_ids = []
+
+    # impossible de calculer la direction à la 1ère frame
+    # mais pq pas essayer avce t+1 (en pensant à inverser dx et dy) ?
+    if t == 0:
+        return np.empty((0, 2)), np.array([], dtype=int)
 
     for aid in ids:
         traj = df[df[COL_ID] == aid].sort_values(COL_TIME)
 
         curr = traj[traj[COL_TIME] == t]
-        prev = traj[traj[COL_TIME] == t - 1]
 
-        if curr.empty or prev.empty:
+        if curr.empty:
+            # agent inexistant à cette frame
+            continue
+
+        prev = None
+
+        # recherche de la dernière observation dispo (pour contourner le pbm de frames manquantes)
+        for gap in range(1, max_gap_frame + 1):
+            prev_candidate = traj[traj[COL_TIME] == t-gap]
+
+            if not prev_candidate.empty:
+                prev = prev_candidate
+                break
+
+        if prev is None:
             continue
 
         dx = curr.iloc[0]["x_m"] - prev.iloc[0]["x_m"]
@@ -1297,10 +1341,12 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
 
             if len(dirs) < 2:
                 # pas assez de direction -> fallback spatial direct
+                # print(f"{t}: Pas assez de direction ! ", dirs, valid_ids_all)
                 clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
                 labels = clustering.labels_
                 valid_groups = [(labels, ids, points)]
             else:
+                # print(f"{t}: Directions : ", dirs, valid_ids_all)
                 clustering_dir = DBSCAN(eps=eps_dir, min_samples=2, metric="cosine").fit(dirs)
                 dir_labels = clustering_dir.labels_
 
@@ -1481,6 +1527,197 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
         plt.show()
 
     return history
+
+
+# def compute_clusters_and_hulls_over_time_single_dbscan(
+#         df,
+#         min_samples=2,
+#         eps_ped=1.5,
+#         eps_cyc=2.5,
+#         lambda_dir=1.63,
+#         max_gap_frame=2,
+#         plot=False,
+#         fps=None,
+#         save_gif=False,
+#         output_path="clusters.gif",
+#         highlight_id=None):
+#     """
+#     Calcule DBSCAN + convex hull frame par frame avec un seul DBSCAN.
+
+#     Le clustering utilise un espace augmenté :
+    
+#         [x, y, lambda_dir * dx, lambda_dir * dy]
+
+#     permettant de prendre en compte :
+#         - proximité spatiale
+#         - similarité de direction
+
+#     Returns:
+#         history[t] = {
+#             "ped": {...},
+#             "cyc": {...}
+#         }
+#     """
+
+#     history = {}
+
+#     for t in sorted(df[COL_TIME].unique()):
+#         frame = df[df[COL_TIME] == t]
+#         history[t] = {}
+
+#         for cls, name, eps in [(1, "ped", eps_ped),(2, "cyc", eps_cyc)]:
+#             sub = frame[frame[COL_CLASS] == cls]
+
+#             if len(sub) == 0:
+#                 history[t][name] = None
+#                 continue
+
+#             points = sub[["x_m", "y_m"]].values
+#             ids = sub[COL_ID].values
+
+#             # =========================================================
+#             # Calcul des directions
+#             # =========================================================
+#             dirs, valid_ids = compute_directions_for_ids(df, ids, t, max_gap_frame=max_gap_frame)
+
+#             # Certains agents peuvent ne pas avoir de direction
+#             # (première apparition, trajectoire trop courte...)
+#             # On garde leur position mais direction nulle.
+
+#             features = []
+
+#             feature_ids = []
+#             feature_points = []
+
+
+#             for i, aid in enumerate(ids):
+#                 point = points[i]
+
+#                 # recherche direction correspondante
+#                 idx = np.where(valid_ids == aid)[0]
+
+#                 if len(idx) > 0:
+#                     direction = dirs[idx[0]]
+#                 else:
+#                     direction = np.array([0.0, 0.0])
+
+#                 feature = np.array([
+#                     point[0], point[1],
+#                     lambda_dir * direction[0],
+#                     lambda_dir * direction[1]])
+
+#                 features.append(feature)
+#                 feature_ids.append(aid)
+#                 feature_points.append(point)
+
+#             features = np.array(features)
+#             feature_ids = np.array(feature_ids)
+#             feature_points = np.array(feature_points)
+
+#             # =========================================================
+#             # DBSCAN (unique -> spatial + directionnel)
+#             # =========================================================
+#             labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(features)
+
+#             clusters = []
+#             clusters_ids = []
+#             hulls = []
+#             noise_points = []
+#             noise_ids = []
+
+#             for lab in set(labels):
+#                 mask = labels == lab
+#                 pts = feature_points[mask]
+#                 ids_cluster = feature_ids[mask]
+
+#                 if lab == -1:
+#                     noise_points.append(pts)
+#                     noise_ids.extend(ids_cluster.tolist())
+#                     continue
+
+#                 clusters.append(pts)
+#                 clusters_ids.append(set(ids_cluster))
+
+#                 # convex hull seulement si >=3 points
+#                 if len(pts) >= 3:
+#                     try:
+#                         hulls.append((pts,ConvexHull(pts)))
+
+#                     except Exception:
+#                         pass
+
+#             if len(noise_points) > 0:
+#                 noise_points = np.vstack(noise_points)
+#             else:
+#                 noise_points = np.empty((0,2))
+
+#             history[t][name] = {
+#                 "points": points,
+#                 "ids": ids,
+#                 "clusters": clusters,
+#                 "clusters_ids": clusters_ids,
+#                 "hulls": hulls,
+#                 "noise": noise_points,
+#                 "noise_ids": np.array(noise_ids),
+#                 "n_clusters": len(clusters),
+#                 "n_noise": len(noise_ids)
+#             }
+
+#     # =========================================================
+#     # VISUALISATION
+#     # =========================================================
+#     if plot:
+#         times = sorted(history.keys())
+#         fig, ax = plt.subplots(figsize=(6,6))
+
+#         def update(i):
+#             ax.clear()
+#             t = times[i]
+#             data = history[t]
+
+#             for name, color, noise_color, marker in [
+#                 ("ped", "blue", "cyan", "o"),
+#                 ("cyc", "green", "lime", "s")
+#             ]:
+
+#                 if data[name] is None:
+#                     continue
+
+#                 # clusters
+#                 for idx, pts in enumerate(data[name]["clusters"]):
+#                     ax.scatter(pts[:,0], pts[:,1], c=color, marker=marker, label=f"{name} cluster {idx}")
+
+#                 # bruit
+#                 if len(data[name]["noise"]) > 0:
+#                     ax.scatter(data[name]["noise"][:,0],data[name]["noise"][:,1], 
+#                         c=noise_color, marker="x", label=f"{name} noise")
+
+#                 # hulls
+#                 for pts, hull in data[name]["hulls"]:
+#                     for simplex in hull.simplices:
+#                         ax.plot(pts[simplex,0], pts[simplex,1], color=color, linewidth=2)
+
+
+#                 # ids
+#                 for (x,y), aid in zip(data[name]["points"], data[name]["ids"]):
+#                     if aid == highlight_id:
+#                         ax.scatter(x, y, s=200, facecolors="none", edgecolors="red", linewidths=2, zorder=20)
+#                     ax.text(x+0.2, y-0.2, str(aid), fontsize=8)
+
+#             ax.set_title(f"DBSCAN clusters and convex hulls - Frame {t} ({t/fps:.2f}s)")
+#             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
+#             ax.set_ylim(df["y_m"].max(), df["y_m"].min())
+#             ax.grid()
+
+#         ani = FuncAnimation(fig,update,frames=len(times),interval=1000/fps)
+
+#         if save_gif:
+#             ani.save(output_path, writer=PillowWriter(fps=fps))
+#             print(f"Saved: {output_path}")
+
+#         plt.show()
+
+#     return history
 
 
 def match_clusters(prev_clusters, curr_clusters):
@@ -1962,8 +2199,10 @@ def build_interaction_events(history, threshold=5.0, fps=None):
     - start
     - end
     - ids impliqués (union sur le temps)
-    Fonciton finale qui doit être utilisée pour capter toutes les interactions d'un ensemble de trajectoires filtré.
+    Fonction finale qui doit être utilisée pour capter toutes les interactions d'un ensemble de trajectoires filtré.
     """
+
+    max_gap = 2 # 2 frames manquantes max par interaction
 
     active_events = []
     finished_events = []
@@ -1987,6 +2226,7 @@ def build_interaction_events(history, threshold=5.0, fps=None):
                     act["end"] = t
                     act["ids_ped"].update(inter["ids_ped"])
                     act["ids_cyc"].update(inter["ids_cyc"])
+                    act["missing_frames"] = 0 # interaction retrouvée, pas de frame manquante
 
                     updated[i] = True
                     matched = True
@@ -2000,21 +2240,34 @@ def build_interaction_events(history, threshold=5.0, fps=None):
                     "ids_ped": set(inter["ids_ped"]),
                     "ids_cyc": set(inter["ids_cyc"]),
                     "start": t,
-                    "end": t
+                    "end": t,
+                    "missing_frames": 0
                 })
                 updated.append(True)
 
-        # fermer celles non vues
+        # fermer celles non vues 2 frames de suite (i.e. interactions terminées)
         new_active = []
         for i, act in enumerate(active_events):
             if i < len(updated) and updated[i]:
-                new_active.append(act)
+                new_active.append(act) # interaction toujours en cours
             else:
-                finished_events.append(act)
+                act["missing_frames"] += 1
+
+                if(act["missing_frames"] <= max_gap):
+                    # interaction potentiellement toujours en cours
+                    new_active.append(act)
+                else:
+                    # interaction non observée dans plus de 2 frames consécutives -> terminée
+                    del act["missing_frames"]
+                    finished_events.append(act)
 
         active_events = new_active
 
-    # fermer les restantes
+    # fermer les interactions restantes
+    for act in active_events:
+        if "missing_frames" in act:
+            del act["missing_frames"]
+        # finished_events.append(act)
     finished_events.extend(active_events)
 
     allowed_pairs = {
@@ -2028,18 +2281,17 @@ def build_interaction_events(history, threshold=5.0, fps=None):
         frozenset(["ped_noise", "cyc_noise"])
     }
 
+    # print("Toutes les interactions : ", finished_events)
     filtered = []
 
     for e in finished_events:
         pair = frozenset([e["type_ped"], e["type_cyc"]])
 
-        # if pair in allowed_pairs:
-        #     filtered.append(e)
-
         if pair not in allowed_pairs:
             continue
             
-        # filtre durée (une interaction doit au moins durer 0.1 sec)
+        # filtre durée 
+        # (une interaction doit durer au moins 0.1 sec sinon pas assez de données et erreur)
         if fps is not None:
             duration_frames = e["end"] - e["start"]
             duration_s = duration_frames / fps
