@@ -151,7 +151,7 @@ def analyze_car_vru_distances(df):
     return distances
 
 
-def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
+def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None, start=None, end=None):
     """
     Fonciton pour analyser la vitesse d'un ou plusieurs au cours de leur trajectoire.
     """
@@ -159,7 +159,7 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
     selected_agents = []
 
     if agent_ids is not None:
-        # --- sélection manuelle ---
+        # --- sélection manuelle des agents ---
         for aid in agent_ids:
             sub = df[df[COL_ID] == aid]
             if len(sub) == 0:
@@ -221,15 +221,15 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None):
         cyc_ids = [aid for aid, cls in selected_agents if cls == 2]
 
         if len(ped_ids) == 1 and len(cyc_ids) == 1:
-            from analysis_interactions import compute_ped_cyc_interactions_with_time
-
-            interactions = compute_ped_cyc_interactions_with_time(df)
-
-            pair = tuple(sorted((ped_ids[0], cyc_ids[0])))
-            frames = interactions.get(pair, [])
-
-            intervals = frames_to_intervals(frames)
-            intervals_sec = [(s /fps, e / fps) for s, e in intervals]
+            if start is None and end is None:
+                from analysis_interactions import compute_ped_cyc_interactions_with_time
+                interactions = compute_ped_cyc_interactions_with_time(df)
+                pair = tuple(sorted((ped_ids[0], cyc_ids[0])))
+                frames = interactions.get(pair, [])
+                intervals = frames_to_intervals(frames)
+                intervals_sec = [(s /fps, e / fps) for s, e in intervals]
+            else:
+                intervals_sec = [(start/fps, end/fps)]
 
     # Plot
     fig, ax_ms = plt.subplots(figsize=(18, 6))
@@ -482,17 +482,17 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
     id_B = ids_B[0]
 
     # DISTANCES
-    times, distances = compute_distance_series(df, id_A, id_B)
+    times, distances = compute_distance_series(df, id_A, id_B, fps=fps, start=start, end=end, plot=plot)
 
     # ANGLE DIRECTION
-    t_dir, angles_dir = compute_direction_angle_velocity_based(df, id_A, id_B, fps, plot=plot)
+    t_dir, angles_dir = compute_direction_angle_velocity_based(df, id_A, id_B, fps, start=start, end=end, plot=plot)
     angles_dir_i = None
     if t_dir is not None:
         mask_dir = (t_dir >= start) & (t_dir <= end)
         angles_dir_i = angles_dir[mask_dir]
 
     # ANGLE APPROCHE
-    t_app, angles_app = compute_approach_angle(df, id_A, id_B, fps, plot=plot)
+    t_app, angles_app = compute_approach_angle(df, id_A, id_B, fps, start=start, end=end, plot=plot)
     angles_app_i = None
     if t_app is not None:
         mask_app = (t_app >= start) & (t_app <= end)
@@ -523,14 +523,14 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
         )
 
     # VITESSE RELATIVE
-    t_rel, _, rel_speeds_kmh, _, _ = compute_relative_speed(df, id_A, id_B, fps, plot=plot)
+    t_rel, _, rel_speeds_kmh, _, _ = compute_relative_speed(df, id_A, id_B, fps, start=start, end=end, plot=plot)
     rel_speeds_kmh_i = None
     if t_rel is not None:
         mask_rel = (t_rel >= start) & (t_rel <= end)
         rel_speeds_kmh_i = rel_speeds_kmh[mask_rel]
 
     # POSITION RELATIVE
-    _, dx, dy, _ = compute_relative_position_series(df, id_A, id_B)
+    _, dx, dy, _ = compute_relative_position_series(df, id_A, id_B, fps=fps, start=start, end=end, plot=plot)
 
     mask = np.zeros_like(times, dtype=bool)
     mask |= (times >= start) & (times <= end)
@@ -565,7 +565,7 @@ def compute_pair_interaction_features(event, df, fps=None, plot=False):
         "relative_position_series": np.column_stack((dx[mask], dy[mask])),
         "PET": compute_pet(df, id_A, id_B, fps, plot=plot),
         # "TTC": compute_ttc(df, id_A, id_B, fps, plot=plot),
-        "TTAC": compute_ttac(df, id_A, id_B, fps, plot=plot),
+        "TTAC": compute_ttac(df, id_A, id_B, fps, start=start, end=end, plot=plot),
         "speed_var_ped": speed_var_ped,
         "speed_var_cyc": speed_var_cyc,
         "spatial_var_ped": spatial_var_ped,
@@ -959,7 +959,7 @@ def classify_direction_angle_series(angles):
     def label_angle(x):
         if x < 30:
             return "SAME_DIRECTION"
-        elif x < 75:
+        elif x < 60:
             return "SLIGHT_DIVERGENCE"
         elif x < 120:
             return "CROSSING" # interaction perpendiculaire
@@ -1000,37 +1000,37 @@ def classify_approach_angle_series(angles):
 
     def label(x):
         if x < 30:
-            return "FRONTAL_APPROACH" # rapprochement
+            return "FRONTAL_APPROACH" # rapprochement frontal, en direction du piéton
         elif x < 75:
             return "OBLIQUE_APPROACH" # rapprochement en diagonal (vers le piéton)
         elif x < 105:
-            return "CROSSING" # interaction perpendiculaire
+            return "LATERAL_APPROACH" # interaction perpendiculaire ou position latérale par rapp au piéotn
         elif x < 150:
             return "OBLIQUE_DEPART" # éloignement en diagonal
         else:
-            return "MOVING_AWAY" # éloignement
+            return "MOVING_AWAY" # éloignement (pointe à l'opposée du piéton)
 
     labels = [label(x) for x in a]
     seq = compress_sequence(labels)
 
     # pattern clé
-    if seq == ["FRONTAL_APPROACH", "CROSSING", "MOVING_AWAY"] or seq == ["FRONTAL_APPROACH", "OBLIQUE_APPROACH", "CROSSING", "OBLIQUE_DEPART", "MOVING_AWAY"] or seq == ["OBLIQUE_APPROACH", "CROSSING", "OBLIQUE_DEPART"]:
-        label_main = "AVOIDANCE" # si dans des directions opposées, mais OVERTAKING (dépassement) si même direction
+    if seq == ["FRONTAL_APPROACH", "LATERAL_APPROACH", "MOVING_AWAY"] or seq == ["FRONTAL_APPROACH", "OBLIQUE_APPROACH", "LATERAL_APPROACH", "OBLIQUE_DEPART", "MOVING_AWAY"] or seq == ["OBLIQUE_APPROACH", "LATERAL_APPROACH", "OBLIQUE_DEPART"]:
+        label_main = "APPROACH_AND_ESCAPE" # si dans des directions opposées, mais OVERTAKING (dépassement) si même direction
 
     elif "FRONTAL_APPROACH" in seq and "MOVING_AWAY" in seq:
         label_main = "APPROACH_AND_ESCAPE"
 
-    elif "CROSSING" in seq:
-        label_main = "CROSSING"
+    elif "LATERAL_APPROACH" in seq:
+        label_main = "LATERAL_APPROACH"
     
-    elif "FRONTAL_APPROACH" in seq:
+    elif "FRONTAL_APPROACH" in seq or "OBLIQUE_APPROACH" in seq:
         label_main = "FRONTAL_APPROACH"
 
     elif "MOVING_AWAY" in seq or "OBLIQUE_DEPART" in seq:
         label_main = "MOVING_AWAY" # éloignement / évitement
-    
-    elif "OBLIQUE_APPROACH" in seq:
-        label_main = "OBLIQUE_APPROACH"
+
+    else:
+        "UNKNOWN"
 
     return {
         "label_main": label_main,
@@ -1062,11 +1062,13 @@ def classify_relative_speed_series(speeds):
     seq = compress_sequence(labels)
 
     if "VERY_HIGH" in seq:
-        main = "VERY_DYNAMIC"
+        main = "VERY_FAST"
     elif "HIGH" in seq:
-        main = "DYNAMIC"
+        main = "FAST"
+    elif "MODERATE" in seq:
+        main = "MODERATE"
     else:
-        main = "LOW_DYNAMIC"
+        main = "VERY_SLOW"
 
     return {
         "label_main": main,
@@ -1075,6 +1077,37 @@ def classify_relative_speed_series(speeds):
         "v_mean": float(np.mean(v))
     }
 
+
+
+# def classify_relative_position_series(rel_positions):
+
+#     if len(rel_positions) == 0:
+#         return {"label_main": "UNKNOWN"}
+
+#     angles = []
+
+#     for vec in rel_positions:
+#         angle = np.degrees(np.arctan2(vec[1], vec[0]))
+#         angles.append(angle)
+
+#     angles = np.array(angles)
+
+#     # simplification
+#     front = np.sum((angles > -45) & (angles < 45))
+#     side = np.sum((angles >= 45) & (angles <= 135))
+#     back = np.sum((angles > 135) | (angles < -135))
+
+#     if front > side and front > back:
+#         label = "FRONT_INTERACTION" # cycliste devant le piéton
+#     elif side > front and side > back:
+#         label = "SIDE_INTERACTION"
+#     else:
+#         label = "REAR_INTERACTION" # cycliste derrière le piéton
+
+#     return {
+#         "label_main": label,
+#         "angles": angles.tolist()
+#     }
 
 
 def classify_relative_position_series(rel_positions):
@@ -1090,21 +1123,31 @@ def classify_relative_position_series(rel_positions):
 
     angles = np.array(angles)
 
-    # simplification
-    front = np.sum((angles > -45) & (angles < 45))
-    side = np.sum((angles >= 45) & (angles <= 135))
-    back = np.sum((angles > 135) | (angles < -135))
+    # Classification angulaire
+    front = np.sum((angles >= -45) & (angles <= 45))
 
-    if front > side and front > back:
-        label = "FRONT_INTERACTION" # cycliste devant le piéton
-    elif side > front and side > back:
-        label = "SIDE_INTERACTION"
-    else:
-        label = "REAR_INTERACTION" # cycliste derrière le piéton
+    left = np.sum((angles > 45) & (angles <= 135))
+
+    right = np.sum((angles < -45) & (angles >= -135))
+
+    behind = np.sum(
+        (angles > 135) | (angles < -135)
+    )
+
+    n = len(rel_positions)
+    ratios = {
+        "FRONT": front / n,
+        "BEHIND": behind / n,
+        "LEFT": left / n,
+        "RIGHT": right / n
+    }
+
+    label = max(ratios, key=ratios.get)
 
     return {
         "label_main": label,
-        "angles": angles.tolist()
+        "angles": angles.tolist(),
+        "ratios": ratios
     }
 
 
@@ -1138,6 +1181,7 @@ def classify_pair_interaction(features):
     spatial_var_cyc = features["spatial_var_cyc"]
     spatial_var_res_cyc = classify_spatial_deviation(spatial_var_cyc)
 
+    # réactivité des agents
     stability_ped = spatial_var_ped.get("trajectory_stability", np.nan)
     stability_cyc = spatial_var_cyc.get("trajectory_stability", np.nan)
     reactive_agent = ""
@@ -1149,27 +1193,27 @@ def classify_pair_interaction(features):
         else: # égalité
             reactive_agent = "both"
 
-    if approach_res["label_main"] in ["AVOIDANCE", "APPROACH_AND_ESCAPE"]:
+    # détection du type d'interaction
+    interaction = "UNDEFINED"
+
+    if approach_res["label_main"] == "APPROACH_AND_ESCAPE" or approach_res["label_main"] == "LATERAL_APPROACH":
         if dir_res["label_main"] == "SAME_DIRECTION":
             interaction = "OVERTAKING"
         elif dir_res["label_main"] in ["OPPOSITE_DIRECTION", "DIVERGING"]:
             interaction = "AVOIDANCE" # ici évitement = contournement
         elif dir_res["label_main"] == "CROSSING":
             interaction = "CROSSING" # sorte de contournement mais trajectoires perpendiculaires
-            if (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
+            if pet_res == "CRITICAL" or (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_FAST") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
                 interaction = "CLOSE_COLLISION"
     
-    elif approach_res["label_main"] == "CROSSING":
-        interaction = "CROSSING"
-        if (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
-                interaction = "CLOSE_COLLISION"
-
-        # if dir_res["label_main"] in ["CROSSING", "DIVERGING"]:
-        #     interaction = "CROSSING"
+    # elif approach_res["label_main"] == "LATERAL_APPROACH":
+#       interaction == "CROSSING"
+#       if pet_res == "CRITICAL" or (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_FAST") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
+#           interaction = "CLOSE_COLLISION"
 
     elif approach_res["label_main"] == "FRONTAL_APPROACH":
         if dir_res["label_main"] == "SAME_DIRECTION":
-            interaction = "FOLLOWING"
+            interaction = "FOLLOWING" # pas observé dans CTV, mais ajouté quand même pour la logique et les autres datasets
         elif dir_res["label_main"] in ["OPPOSITE_DIRECTION", "DIVERGING"]:
             interaction = "AVOIDANCE"
         elif dir_res["label_main"] == "CROSSING":
@@ -1177,19 +1221,17 @@ def classify_pair_interaction(features):
             if pet_res == "CRITICAL" or (pet_res == "CRITICAL" and speed_res["label_main"] == "VERY_DYNAMIC") or (pet_res == "CRITICAL" and dist_res["label_main"] == "CRITICAL_PROXIMITY"):
                 interaction = "CLOSE_COLLISION"
             elif pet_res == "MEDIUM" or pet_res == "LOW":
-                if speed_res["label_main"] == "DYNAMIC" or speed_res["label_main"] == "LOW_DYNAMIC":
+                if speed_res["label_main"] == "MODERATE" or speed_res["label_main"] == "VERY_SLOW":
                     interaction = "GIVE_WAY"
                 
     
     elif approach_res["label_main"] == "MOVING_AWAY":
         interaction = "MOVING_AWAY" # éloignement / évitement
     
-    elif approach_res["label_main"] == "OBLIQUE_APPROACH":
-        interaction = "OBLIQUE_APPROACH"
-    
-    else:
-        interaction = "UNDEFINED"
+    # elif approach_res["label_main"] == "OBLIQUE_APPROACH":
+    #     interaction = "OBLIQUE_APPROACH"
 
+    # calcul niveau du risque
     score = 0
 
     if pet_res == "CRITICAL":
@@ -1208,24 +1250,24 @@ def classify_pair_interaction(features):
     
 
     if dist_res["label_main"] == "CRITICAL_PROXIMITY":
-        if speed_res["label_main"] == "VERY_DYNAMIC":
+        if speed_res["label_main"] == "VERY_FAST":
             score += 3
-        elif speed_res["label_main"] == "DYNAMIC":
+        elif speed_res["label_main"] == "FAST":
             score += 2
-        elif speed_res["label_main"] == "LOW_DYNAMIC":
+        elif speed_res["label_main"] == "MODERATE":
             score += 1
     elif dist_res["label_main"] == "CLOSE_INTERACTION":
-        if speed_res["label_main"] == "VERY_DYNAMIC":
+        if speed_res["label_main"] == "VERY_FAST":
             score += 3
-        elif speed_res["label_main"] == "DYNAMIC":
+        elif speed_res["label_main"] == "FAST":
             score += 2
     elif dist_res["label_main"] == "MODERATE_INTERACTION":
-        if speed_res["label_main"] == "VERY_DYNAMIC":
+        if speed_res["label_main"] == "VERY_FAST":
             score += 2
-        elif speed_res["label_main"] == "DYNAMIC":
+        elif speed_res["label_main"] == "FAST":
             score += 1
     elif dist_res["label_main"] == "FAR_INTERACTION":
-        if speed_res["label_main"] == "VERY_DYNAMIC":
+        if speed_res["label_main"] == "VERY_FAST":
             score += 1
     
 
@@ -1238,6 +1280,11 @@ def classify_pair_interaction(features):
     else:
         risk = "LOW"
 
+    if interaction == "AVOIDANCE" or interaction == "OVERTAKING":
+        if pos_res["ratios"]["LEFT"] > pos_res["ratios"]["RIGHT"]:
+            pos_res["label_main"] = "LEFT"
+        else:
+            pos_res["label_main"] = "RIGHT"
 
     return {
         "interaction_type": interaction,
