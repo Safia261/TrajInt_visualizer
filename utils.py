@@ -6,67 +6,19 @@ from matplotlib.path import Path
 from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull, convex_hull_plot_2d
 from scipy.spatial.distance import cdist, directed_hausdorff
+from scipy.stats import norm
 from config import *
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
 
-def compute_interaction_intervals(df, ped_id, cyc_id, fps, distance_threshold=5.0):
-    """
-    Retourne les intervalles de temps où un piéton et un cycliste sont en interaction.
-
-    Returns:
-        intervals : liste de tuples [(t_start, t_end), ...]
-    """
-
-    # récupérer toutes les interactions
-    from analysis_interactions import compute_ped_cyc_interactions_with_time
-    interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
-
-    # clé triée (important)
-    key = tuple(sorted((ped_id, cyc_id)))
-
-    frames = interactions.get(key, [])
-
-    if len(frames) == 0:
-        return []
-
-    frames = sorted(frames)
-
-    # conversion en intervalles
-    intervals_fps = []
-    start = frames[0]
-    prev = frames[0]
-
-    for t in frames[1:]:
-        # continuité temporelle
-        if t == prev:
-            continue
-
-        # rupture -> nouvel intervalle
-        if t > prev + 1:
-            intervals_fps.append((int(start), int(prev)))
-            start = t
-
-        prev = t
-
-    # dernier intervalle
-    intervals_fps.append((int(start), int(prev)))
-
-    intervals_sec = [(float(s/fps), float(e/fps)) for s, e in intervals_fps]
-
-    total_duration_sec = sum((e - s) for s, e in intervals_sec)
-
-    return intervals_fps, intervals_sec, total_duration_sec
-
 def frames_to_intervals(frames):
     """
-    Convertit une liste de frames en intervalles continus (start, end)
+    Converts a list of frames into continuous intervals (start, end)
     """
     if len(frames) == 0:
         return []
 
     frames = sorted(frames)
-
     intervals = []
     start = frames[0]
     prev = frames[0]
@@ -86,19 +38,11 @@ def frames_to_intervals(frames):
 
 def add_time_markers(ax, intervals):
     for i, (start, end) in enumerate(intervals):
-        # ax.axvline(start, color="green", linestyle="--",
-        #            label="Début interaction" if i == 0 else "")
-        # ax.axvline(end, color="red", linestyle="--",
-        #            label="Fin interaction" if i == 0 else "")
-
         ax.axvspan(start, end, color="grey", alpha=0.2, label=f"Interaction ({start:.2f} - {end:.2f}, duration={end-start:.2f}s)")
-
 
 def add_spatial_markers(ax, df, ped_id, intervals):
     ped = df[df[COL_ID] == ped_id]
-
     for i, (start, end) in enumerate(intervals):
-
         p_start = ped[ped[COL_TIME] == start]
         p_end = ped[ped[COL_TIME] == end]
 
@@ -119,26 +63,11 @@ def add_spatial_markers(ax, df, ped_id, intervals):
             )
 
 
-def filter_series_by_intervals(times, values, intervals):
-    """
-    Garde uniquement les valeurs dans les intervalles d'interaction
-    """
-    mask = np.zeros_like(times, dtype=bool)
-
-    for start, end in intervals:
-        mask |= (times >= start) & (times <= end)
-
-    return times[mask], values[mask]
-
-
 ###############################################
-# Critères spatio-temporels d'une interaction paire (individu-individu)
+# Spatio-temporal criteria for individual-individual interactions
 ###############################################
 
 def compute_speed(g, fps):
-    """
-    Calcule la vitesse (m/s et km/h) d'un agent au cours du temps.
-    """
     g = g.sort_values(COL_TIME)
 
     xs = g["x_m"].values
@@ -151,18 +80,13 @@ def compute_speed(g, fps):
     dx = np.diff(xs)
     dy = np.diff(ys)
 
-    # à voir si je mets pas simplement que la ligne suivante
-    # dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
-
     if len(np.unique(times)) > 1: # si y a au moins 2 timestamps différents
         dt = np.diff(times) / fps
     else:
         dt = np.ones_like(dx) / fps # (c'est exactement équivalent à dt = 1/fps en s)
 
-    # dt[dt == 0] = 1e-6 # pour éviter division par zéro
     dt[dt <= 0] = 1 / fps # pour éviter division par zéro
-
-    speeds = np.hypot(dx, dy) / dt # exactement équivalent à dist euclidienne
+    speeds = np.hypot(dx, dy) / dt
 
     # conversion km/h
     speeds_kmh = speeds * 3.6
@@ -170,21 +94,220 @@ def compute_speed(g, fps):
     return times[1:], speeds, speeds_kmh
 
 
+def compute_acceleration(g, fps, sp=None, t=None):
+    speeds = sp
+    times = t
+    if speeds is None:
+        times, speeds, _ = compute_speed(g, fps)
+
+    if speeds is None or len(speeds) < 2:
+        return None, None
+
+    threshold = np.percentile(speeds, 99)
+    mask = ((speeds <= threshold) & (speeds >= 0.5))
+
+    speeds_clean = speeds[mask]
+    times_clean = times[mask]
+
+    dt = np.diff(times_clean) / fps
+    dt[dt <= 0] = 1 / fps
+
+    accelerations = np.diff(speeds_clean) / dt
+
+    return times[1:], accelerations
+
+
+def collect_cyclist_statistics(df, fps):
+    """
+    Returns all cyclist speeds and accelerations from a video.
+    """
+    cyclist_df = df[df[COL_CLASS] == 2]
+
+    all_speeds = []
+    all_accelerations = []
+    cyclist_count = 0
+
+    for _, g in cyclist_df.groupby(COL_ID):
+
+        if len(g) < 2:
+            continue
+
+        cyclist_count += 1
+        times, speeds, _ = compute_speed(g, fps)
+        if speeds is not None:
+            all_speeds.extend(speeds)
+
+        _, acc = compute_acceleration(g, fps, sp=speeds, t=times)
+        if acc is not None:
+            all_accelerations.extend(acc)
+
+    return (np.asarray(all_speeds), np.asarray(all_accelerations), cyclist_count)
+
+
+def plot_cyclist_speed_histogram(all_speeds, cyclist_count):
+    """
+    Histogramme des vitesses de tous les cyclistes.
+    """
+
+    if len(all_speeds) == 0:
+        print("No speed available.")
+        return
+
+    print("Nb of speed (of cyclists) :", len(all_speeds))
+    print("Min speed :", np.min(all_speeds))
+    print("Max speed :", np.max(all_speeds))
+    print("Mean speed :", np.mean(all_speeds))
+    print("Std speed :", np.std(all_speeds))
+    print("Unique values :", len(np.unique(all_speeds)))
+
+    q99 = np.percentile(all_speeds, 99)
+    speeds_plot = all_speeds[(all_speeds <= q99) & (all_speeds >= 0.5)]
+
+    mean = np.mean(speeds_plot)
+    std = np.std(speeds_plot)
+
+    # Histo avec densité de proba
+    plt.figure(figsize=(10,6))
+    counts, bins, _ = plt.hist(
+        speeds_plot,
+        bins=30,
+        density=True,
+        alpha=0.7,
+        color="steelblue",
+        edgecolor="black",
+        label="Observed speeds"
+    )
+    x = np.linspace(bins[0], bins[-1], 300)
+    plt.plot(x, norm.pdf(x, mean, std), 'r', lw=2.5, label="Normal distribution")
+    plt.xlabel("Speed (m/s)")
+    plt.ylabel("Probability density")
+    plt.title("Cyclist speed distribution")
+    text = (
+        f"N cyclists = {cyclist_count}\n"
+        f"N samples = {len(all_speeds)}\n"
+        f"Mean = {mean:.2f} m/s\n"
+        f"Std = {std:.2f} m/s"
+    )
+    plt.text(
+        0.98,
+        0.98,
+        text,
+        transform=plt.gca().transAxes,
+        ha="right",
+        va="top",
+        bbox=dict(facecolor="white", alpha=0.8)
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # histo avec nombre d'observations
+    plt.figure(figsize=(10,6))
+    counts, bins, _ = plt.hist(
+        speeds_plot,
+        bins=30,
+        density=False,
+        alpha=0.7,
+        color="steelblue",
+        edgecolor="black",
+        label="Observed speeds"
+    )
+    bin_width = bins[1] - bins[0]
+    x = np.linspace(bins[0], bins[-1], 300)
+    plt.plot(
+        x,
+        norm.pdf(x, mean, std) * len(speeds_plot) * bin_width,
+        'r',
+        lw=2.5,
+        label="Normal distribution"
+    )
+    plt.xlabel("Speed (m/s)")
+    plt.ylabel("Number of observations")
+    plt.title("Cyclist speed distribution")
+    text = (
+        f"N cyclists = {cyclist_count}\n"
+        f"N samples = {len(all_speeds)}\n"
+        f"Mean = {mean:.2f} m/s\n"
+        f"Std = {std:.2f} m/s"
+    )
+    plt.text(
+        0.98,
+        0.98,
+        text,
+        transform=plt.gca().transAxes,
+        ha="right",
+        va="top",
+        bbox=dict(facecolor="white", alpha=0.8)
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Histo avec en Y la freq en %
+    weights = np.ones_like(speeds_plot) * 100 / len(speeds_plot)
+    plt.figure(figsize=(10,6))
+    counts, bins, _ = plt.hist(
+        speeds_plot,
+        bins=30,
+        weights=weights,
+        alpha=0.7,
+        color="steelblue",
+        edgecolor="black",
+        label="Observed speeds"
+    )
+    bin_width = bins[1] - bins[0]
+    x = np.linspace(bins[0], bins[-1], 300)
+    plt.plot(
+        x,
+        norm.pdf(x, mean, std) * 100 * bin_width,
+        'r',
+        lw=2.5,
+        label="Normal distribution"
+    )
+    plt.xlabel("Speed (m/s)")
+    plt.ylabel("Frequency (%)")
+    plt.title("Cyclist speed distribution")
+    text = (
+        f"N cyclists = {cyclist_count}\n"
+        f"N samples = {len(all_speeds)}\n"
+        f"Mean = {mean:.2f} m/s\n"
+        f"Std = {std:.2f} m/s"
+    )
+    plt.text(
+        0.98,
+        0.98,
+        text,
+        transform=plt.gca().transAxes,
+        ha="right",
+        va="top",
+        bbox=dict(facecolor="white", alpha=0.8)
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+def print_cyclist_statistics(all_speeds, all_accelerations, cyclist_count):
+    print("\nCyclist stats")
+    print(f"Number of cyclists : {cyclist_count}")
+    print(f"Speed samples : {len(all_speeds)}")
+    print(f"Acceleration samples : {len(all_accelerations)}")
+    print(f"Mean speed: {np.mean(all_speeds):.2f} m/s")
+    print(f"Speed std : {np.std(all_speeds):.2f} m/s")
+    print(f"Mean acceleration : {np.mean(all_accelerations):.2f} m/s2")
+    print(f"Acceleration std : {np.std(all_accelerations):.2f} m/s2")
+
+
 def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, return_class=False):
     """
-    Calcule et trace la distance entre un piéton et un cycliste.
-
-    Returns:
-        times
-        distances
-        (optionnel) intervals
+    Compute and plot the distance between a pedestrian and a cyclist.
     """
-
     # extraction
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
 
-    # synchronisation
+    # synchronization
     common_times = np.intersect1d(
         ped[COL_TIME].values,
         cyc[COL_TIME].values
@@ -221,7 +344,7 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
         t_min_plot = t_min / fps
     
 
-    # intervalles interaction
+    # interaction intervals
     from analysis_interactions import compute_ped_cyc_interactions_with_time
     interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
     key = tuple(sorted((ped_id, cyc_id)))
@@ -239,10 +362,11 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
         add_time_markers(plt.gca(), intervals_plot)
         if not np.isnan(t_min_plot):
             plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Min distance = {dist_min:.2f}m (at {t_min_plot:.2f}s)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Distance (m)")
-        plt.title(f"Distance between pedestrian {ped_id} and cyclist {cyc_id} accross time")
-        plt.legend()
+        plt.xlabel("Time (s)", fontsize=15)
+        plt.ylabel("Distance (m)", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
+        plt.title(f"Distance between pedestrian {ped_id} and cyclist {cyc_id} accross time", fontsize=15, fontweight="bold")
+        plt.legend(fontsize=13)
         plt.grid()
 
         plt.tight_layout()
@@ -256,9 +380,6 @@ def compute_distance_ped_cyc(df, ped_id, cyc_id, fps, distance_threshold=5.0, pl
 
 
 def find_closest_ped_cyc(df):
-    """
-    Renvoie le piéton et cycliste les plus proches entre eux.
-    """
     min_dist = float("inf")
     best_pair = (None, None)
 
@@ -287,9 +408,7 @@ def find_closest_ped_cyc(df):
 
 def compute_velocity_vectors(g, fps, plot=False):
     """
-    Calcule les vecteurs vitesse (vx, vy) pour un agent donné.
-    Returns:
-        times, vx, vy
+    Computes the velocity vectors (vx, vy) for a given agent.
     """
     g = g.sort_values(COL_TIME)
 
@@ -315,16 +434,13 @@ def compute_velocity_vectors(g, fps, plot=False):
 
     if plot:
         plt.figure(figsize=(6, 6))
-
         plt.plot(xs, ys, 'k--', alpha=0.5, label="Trajectoire")
-
         plt.quiver(
             xs[:-1], ys[:-1],
             vx, vy,
             angles='xy', scale_units='xy', scale=1,
             color="blue"
         )
-        
         plt.xlabel("x (m)")
         plt.ylabel("y (m)")
         plt.title(f"Velocity vectors of agent {g[COL_ID].iloc[0]}")
@@ -340,24 +456,21 @@ def compute_velocity_vectors(g, fps, plot=False):
 
 def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, start=None, end=None, angle_unit="deg", plot=False, return_class=False):
     """
-    Calcule l'angle de direction entre les vecteurs vitesse du piéton et du cycliste. 
-    Indique la direction des usagers lors de l'interaction.
-
-    Returns:
-        times, angles
+    Computes the direction angle between the pedestrian's and cyclist's velocity vectors.
+    Indicates the users' movement directions during the interaction.
     """
 
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
 
-    # vecteurs vitesses
+    # velocity vectors
     t_p, vx_p, vy_p = compute_velocity_vectors(ped, fps)
     t_c, vx_c, vy_c = compute_velocity_vectors(cyc, fps)
 
     if t_p is None or t_c is None:
         return None, None
 
-    # synchronisation des timestamps
+    # timestamps synchronization
     common_times = np.intersect1d(t_p, t_c)
 
     angles = []
@@ -404,9 +517,10 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, start=None, 
 
         plt.figure(figsize=(10, 4))
         plt.plot(valid_times/fps, angles)
-        plt.xlabel("Time (s)")
-        plt.ylabel(f"Angle ({angle_unit})")
-        plt.title(f"Direction angle (ped {ped_id} - cyc {cyc_id})")
+        plt.xlabel("Time (s)", fontsize=15)
+        plt.ylabel(f"Angle ({angle_unit})", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
+        plt.title(f"Direction angle (ped {ped_id} - cyc {cyc_id})", fontsize=15, fontweight="bold")
         if angle_unit == "deg":
             plt.axhline(0, linestyle="--", color="black", alpha=0.5, label="Same direction (0°)")
             plt.axhline(90, linestyle="--", color="orange", label="Perpendicular (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
@@ -415,7 +529,8 @@ def compute_direction_angle_velocity_based(df, ped_id, cyc_id, fps, start=None, 
         add_time_markers(plt.gca(), intervals_sec)
         smooth = lowess(angles, valid_times/fps,frac=0.05)
         plt.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed angle", alpha=0.5)
-        plt.legend()
+        plt.legend(fontsize=12)
+        plt.tight_layout()
         plt.show()
 
     if return_class:
@@ -436,14 +551,11 @@ def compute_approach_angle(
     plot=False,
     return_class=False):
     """
-    Calcule l'angle d'approche entre un cycliste et un piéton (entre la lignée de visée et la vitesse relative).
+    Computes the approach angle between a cyclist and a pedestrian (between the line of sight and the relative velocity vector).
 
-    Basé sur :
-        - vecteur position relative
-        - vecteur vitesse relative
-
-    Returns:
-        times, angles
+    Based on:
+        - relative position vector
+        - relative velocity vector
     """
 
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
@@ -520,9 +632,10 @@ def compute_approach_angle(
         plt.figure(figsize=(10, 4))
         plt.plot(valid_times/fps, angles)
 
-        plt.xlabel("Time (s)")
-        plt.ylabel(f"Angle ({angle_unit})")
-        plt.title(f"Approach angle (ped {ped_id} - cyc {cyc_id})")
+        plt.xlabel("Time (s)", fontsize=15)
+        plt.ylabel(f"Angle ({angle_unit})", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
+        plt.title(f"Approach angle (ped {ped_id} - cyc {cyc_id})", fontsize=15, fontweight="bold")
         if angle_unit == "deg":
             plt.axhline(0, linestyle="--", color="black", alpha=0.5, label="Frontal (0°)")
             plt.axhline(90, linestyle="--", color="orange", label="Crossing (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
@@ -531,7 +644,8 @@ def compute_approach_angle(
         add_time_markers(plt.gca(), intervals_sec)
         smooth = lowess(angles, valid_times/fps,frac=0.05)
         plt.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed angle", alpha=0.5)
-        plt.legend()
+        plt.legend(fontsize=12)
+        plt.tight_layout()
         plt.show()
     
     if return_class:
@@ -545,14 +659,11 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, start=None, end=None,
                             angle_unit="deg", return_distance=True, distance_threshold=5.0, 
                             plot=False, return_class=False):
     """
-    Calcule le mouvement relatif entre un piéton et un cycliste :
-    - vitesse relative (m/s)
-    - vitesse relative (km/h)
-    - angle d'approche (rad)
-    - distance (optionnel)
-
-    Returns:
-        times, rel_speeds, rel_speeds_kmh, angles, distances (optionnel)
+    Computes the relative motion between a pedestrian and a cyclist:
+    - relative speed (m/s)
+    - relative speed (km/h)
+    - approach angle (rad)
+    - distance (optional)
     """
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
@@ -621,44 +732,26 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, start=None, end=None,
 
         # vitesse m/s
         ax1.plot(common_times/fps, rel_speeds)
-        ax1.set_xlabel("Time (s)")
-        ax1.set_ylabel("Relative speed (m/s)")
-        ax1.set_title(f"Cyclist {cyc_id}'s relative speed compared to pedestrian {ped_id}")
+        ax1.set_xlabel("Time (s)", fontsize=15)
+        ax1.set_ylabel("Relative speed (m/s)", fontsize=15)
+        ax1.tick_params(axis="both", labelsize=13)
+        ax1.set_title(f"Cyclist {cyc_id}'s relative speed compared to pedestrian {ped_id}", fontsize=15, fontweight="bold")
         ax1.grid()
 
         # vitesse km/h
         ax2 = ax1.twinx()
         ax2.plot(common_times/fps, rel_speeds_kmh)
+        ax2.tick_params(axis="both", labelsize=13)
         smooth = lowess(rel_speeds_kmh, common_times/fps,frac=0.05)
         ax2.plot(smooth[:,0], smooth[:,1], linewidth=2, color ="red", label="Smoothed speed", alpha=0.5)
-        ax2.set_ylabel("Relative speed (km/h)")
-
-        # angle
-        # ax3.plot(common_times/fps, angles, color="green")
-        # ax3.set_ylabel("Angle (°)")
-        # ax3.set_xlabel("Temps (s)")
-        # ax3.grid()
-
-        # from analysis_interactions import compute_ped_cyc_interactions_with_time
-        # interactions = compute_ped_cyc_interactions_with_time(df, distance_threshold)
-
-        # pair = tuple(sorted((ped_id, cyc_id)))
-        # interaction_times = interactions.get(pair, [])
-
-        # # Marqueurs d'interaction
-        # if len(interaction_times) > 0:
-        #     t_start = min(interaction_times) / fps
-        #     t_end = max(interaction_times) /fps
-        #     ax1.axvspan(t_start, t_end, color="grey", alpha=0.2, label=f"Interaction ({t_start:.2f} - {t_end:.2f}, duration={t_end-t_start:.2f}s)")
-
+        ax2.set_ylabel("Relative speed (km/h)", fontsize=15)
         add_time_markers(ax1, intervals_sec)
 
         # légende fusionnée
         handles1, labels1 = ax1.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels()
         by_label = dict(zip(labels1 + labels2, handles1 + handles2))
-        ax1.legend(by_label.values(), by_label.keys())
-
+        ax1.legend(by_label.values(), by_label.keys(), fontsize=12)
         plt.tight_layout()
         plt.show()
 
@@ -691,25 +784,13 @@ def compute_relative_speed(df, ped_id, cyc_id, fps, start=None, end=None,
 
 def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, return_class=False):
     """
-    Calcule le PET (Post-Encroachment Time) entre un piéton et un cycliste.
-
-    Parameters:
-        df : DataFrame
-        ped_id : ID du piéton
-        cyc_id : ID du cycliste
-        distance_threshold : rayon pour considérer "même point" (en mètres)
-
-    Returns:
-        pet (float) ou None
+    Computes the PET (Post-Encroachment Time) between a pedestrian and a cyclist.
     """
 
     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
 
-    times_p = ped[COL_TIME].values
-    times_c = cyc[COL_TIME].values
-
-    # 1. Trouver point de conflit (distance minimale)
+    # 1. Find the conflict point (minimum distance)
     min_dist = float("inf")
     conflict_point = None
 
@@ -729,7 +810,7 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
 
     cx, cy = conflict_point
 
-    # 2. Trouver temps de passage près du point
+    # 2. Find the passage times near the conflict point
     def get_crossing_time(agent_df):
         for _, row in agent_df.iterrows():
             dx = row["x_m"] - cx
@@ -760,7 +841,7 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
     if plot:
         plt.figure(figsize=(8, 8))
 
-        # trajectoires
+        # trajectories
         plt.plot(ped["x_m"], ped["y_m"],
                  color=CLASS_COLORS.get(1, "blue"),
                  label=f"Ped {ped_id}")
@@ -769,18 +850,16 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
                  color=CLASS_COLORS.get(2, "green"),
                  label=f"Cyc {cyc_id}")
 
-        # point de conflit
+        # conflict point
         plt.scatter(cx, cy,
                     color="red",
                     s=120,
                     marker="X",
                     label="Conflict point")
 
-        # essayer d'ajouter les flèches de direction des agents plus tard si temps
-
         plt.text(cx + 2.0, cy + 2.0, f"First out: {first_out}\nLast in: {last_in}", bbox=dict(facecolor="white", alpha=0.8))
 
-        # cercle zone conflit
+        # conflict zone circle
         circle = plt.Circle(
             (cx, cy),
             distance_threshold,
@@ -799,14 +878,15 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
             bbox=dict(facecolor="white", alpha=0.8)
         )
 
-        plt.title(f"Post-Encroachment Time (PET) (ped {ped_id} / cyc {cyc_id})")
-        plt.xlabel("x (m)")
-        plt.ylabel("y (m)")
+        plt.title(f"Post-Encroachment Time (PET) (ped {ped_id} / cyc {cyc_id})", fontsize=15, fontweight="bold")
+        plt.xlabel("x (m)", fontsize=15)
+        plt.ylabel("y (m)", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
         plt.gca().invert_yaxis()
         plt.grid()
-        plt.legend()
+        plt.legend(fontsize=12)
         plt.axis("equal")
-
+        plt.tight_layout()
         plt.show()
 
     if return_class:
@@ -816,180 +896,175 @@ def compute_pet(df, ped_id, cyc_id, fps, distance_threshold=1.0, plot=False, ret
     return pet
 
 
-def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, return_class=False):
-    """
-    Calcule le TTC (Time-To-Collision) entre un piéton et un cycliste.
+# def compute_ttc(df, ped_id, cyc_id, fps, distance_threshold=5.0, plot=False, return_class=False):
+#     """
+#     Calcule le TTC (Time-To-Collision) entre un piéton et un cycliste.
 
-    Returns:
-        times, ttc_values
-    """
+#     Returns:
+#         times, ttc_values
+#     """
 
-    ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
-    cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
+#     ped = df[df[COL_ID] == ped_id].sort_values(COL_TIME)
+#     cyc = df[df[COL_ID] == cyc_id].sort_values(COL_TIME)
 
-    # vitesses
-    t_p, vx_p, vy_p = compute_velocity_vectors(ped, fps)
-    t_c, vx_c, vy_c = compute_velocity_vectors(cyc, fps)
+#     # vitesses
+#     t_p, vx_p, vy_p = compute_velocity_vectors(ped, fps)
+#     t_c, vx_c, vy_c = compute_velocity_vectors(cyc, fps)
 
-    if t_p is None or t_c is None:
-        return None, None
+#     if t_p is None or t_c is None:
+#         return None, None
 
-    # positions (alignées sur t_p[1:])
-    ped_pos = ped[["x_m", "y_m"]].values[1:]
-    cyc_pos = cyc[["x_m", "y_m"]].values[1:]
+#     # positions (alignées sur t_p[1:])
+#     ped_pos = ped[["x_m", "y_m"]].values[1:]
+#     cyc_pos = cyc[["x_m", "y_m"]].values[1:]
 
-    # synchronisation temporelle
-    common_times = np.intersect1d(t_p, t_c)
+#     # synchronisation temporelle
+#     common_times = np.intersect1d(t_p, t_c)
 
-    ttc_values = []
-    valid_times = []
+#     ttc_values = []
+#     valid_times = []
 
-    for t in common_times:
-        i_p = np.where(t_p == t)[0][0]
-        i_c = np.where(t_c == t)[0][0]
+#     for t in common_times:
+#         i_p = np.where(t_p == t)[0][0]
+#         i_c = np.where(t_c == t)[0][0]
 
-        # vecteurs 
-        # (peut-être que ça ne fonctionne pas là ? car TTC généralement quand usagers dans même direction et l'un devant l'autre d'après Josué)
-        r = cyc_pos[i_c] - ped_pos[i_p]
-        v = np.array([vx_c[i_c] - vx_p[i_p],
-                      vy_c[i_c] - vy_p[i_p]])
+#         # vecteurs 
+#         # (peut-être que ça ne fonctionne pas là ? car TTC généralement quand usagers dans même direction et l'un devant l'autre d'après Josué)
+#         r = cyc_pos[i_c] - ped_pos[i_p]
+#         v = np.array([vx_c[i_c] - vx_p[i_p],
+#                       vy_c[i_c] - vy_p[i_p]])
 
-        v_norm_sq = np.dot(v, v)
+#         v_norm_sq = np.dot(v, v)
 
-        if v_norm_sq == 0:
-            continue
+#         if v_norm_sq == 0:
+#             continue
 
-        dot = np.dot(r, v)
+#         dot = np.dot(r, v)
 
-        # condition approche 
-        if dot >= 0:
-            continue
+#         # condition approche 
+#         if dot >= 0:
+#             continue
 
-        ttc = - dot / v_norm_sq
+#         ttc = - dot / v_norm_sq
 
-        if ttc < 0:
-            continue
+#         if ttc < 0:
+#             continue
 
-        ttc_values.append(ttc)
-        valid_times.append(t)
+#         ttc_values.append(ttc)
+#         valid_times.append(t)
 
-    ttc_values = np.array(ttc_values)
-    valid_times = np.array(valid_times)
+#     ttc_values = np.array(ttc_values)
+#     valid_times = np.array(valid_times)
 
-    if len(ttc_values) == 0:
-        return valid_times, ttc_values, None
+#     if len(ttc_values) == 0:
+#         return valid_times, ttc_values, None
 
-    # TTC min
-    idx_min = np.argmin(ttc_values)
-    ttc_min = ttc_values[idx_min]
-    ttc_min_time = valid_times[idx_min]
+#     # TTC min
+#     idx_min = np.argmin(ttc_values)
+#     ttc_min = ttc_values[idx_min]
+#     ttc_min_time = valid_times[idx_min]
 
-    if plot and len(ttc_values) > 0:
+#     if plot and len(ttc_values) > 0:
 
-        from analysis_interactions import compute_ped_cyc_interactions_with_time
+#         from analysis_interactions import compute_ped_cyc_interactions_with_time
 
-        interactions = compute_ped_cyc_interactions_with_time(df)
-        frames = interactions.get((ped_id, cyc_id), [])
-        intervals = frames_to_intervals(frames)
+#         interactions = compute_ped_cyc_interactions_with_time(df)
+#         frames = interactions.get((ped_id, cyc_id), [])
+#         intervals = frames_to_intervals(frames)
 
-        times_d, rel_speeds, rel_speeds_kmh, a = compute_relative_speed(
-            df, ped_id, cyc_id, fps, return_distance=False
-        )
+#         times_d, rel_speeds, rel_speeds_kmh, a = compute_relative_speed(
+#             df, ped_id, cyc_id, fps, return_distance=False
+#         )
 
-        t, angles = compute_approach_angle(df, ped_id, cyc_id, fps)
+#         t, angles = compute_approach_angle(df, ped_id, cyc_id, fps)
 
-        common_times = times_d
-        distances = []
+#         common_times = times_d
+#         distances = []
 
-        for t in common_times:
-            p = ped[ped[COL_TIME] == t]
-            c = cyc[cyc[COL_TIME] == t]
+#         for t in common_times:
+#             p = ped[ped[COL_TIME] == t]
+#             c = cyc[cyc[COL_TIME] == t]
 
-            if p.empty or c.empty:
-                distances.append(np.nan)
-                continue
+#             if p.empty or c.empty:
+#                 distances.append(np.nan)
+#                 continue
 
-            dx = p.iloc[0]["x_m"] - c.iloc[0]["x_m"]
-            dy = p.iloc[0]["y_m"] - c.iloc[0]["y_m"]
-            distances.append(np.hypot(dx, dy))
+#             dx = p.iloc[0]["x_m"] - c.iloc[0]["x_m"]
+#             dy = p.iloc[0]["y_m"] - c.iloc[0]["y_m"]
+#             distances.append(np.hypot(dx, dy))
 
-        distances = np.array(distances)
+#         distances = np.array(distances)
 
-        mask = np.zeros_like(valid_times, dtype=bool)
-        for start, end in intervals:
-            mask |= (valid_times >= start) & (valid_times <= end)
-        ttc_inter = ttc_values[mask]
-        if len(ttc_inter) == 0:
-            return None
-        ttc_min_inter = np.min(ttc_inter)
+#         mask = np.zeros_like(valid_times, dtype=bool)
+#         for start, end in intervals:
+#             mask |= (valid_times >= start) & (valid_times <= end)
+#         ttc_inter = ttc_values[mask]
+#         if len(ttc_inter) == 0:
+#             return None
+#         ttc_min_inter = np.min(ttc_inter)
 
-        # plt.figure(figsize=(10, 4))
-        fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
-        ax_dist, ax_ttc, ax_angle = axes
+#         # plt.figure(figsize=(10, 4))
+#         fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+#         ax_dist, ax_ttc, ax_angle = axes
 
-        ax_ttc.plot(valid_times/fps, ttc_values, color="purple", label="TTC")
-        ax_ttc.axhline(2, linestyle="--", color="red", label="Seuil critique (2s)")
-        ax_ttc.scatter(
-            ttc_min_time/fps,
-            ttc_min,
-            color="red",
-            s=80,
-            label=f"TTC min = {ttc_min:.2f}s"
-        )
-        ax_ttc.set_ylabel("TTC (s)")
-        ax_ttc.set_title("Time-To-Collision")
-        ax_ttc.grid()
-        ax_ttc.legend()
-        ax_ttc.text(
-            0.02, 0.95,
-            f"TTC min = {ttc_min:.2f}s\n(t = {ttc_min_time:.2f})",
-            transform=plt.gca().transAxes,
-            bbox=dict(facecolor="white", alpha=0.8)
-        )
+#         ax_ttc.plot(valid_times/fps, ttc_values, color="purple", label="TTC")
+#         ax_ttc.axhline(2, linestyle="--", color="red", label="Seuil critique (2s)")
+#         ax_ttc.scatter(
+#             ttc_min_time/fps,
+#             ttc_min,
+#             color="red",
+#             s=80,
+#             label=f"TTC min = {ttc_min:.2f}s"
+#         )
+#         ax_ttc.set_ylabel("TTC (s)")
+#         ax_ttc.set_title("Time-To-Collision")
+#         ax_ttc.grid()
+#         ax_ttc.legend()
+#         ax_ttc.text(
+#             0.02, 0.95,
+#             f"TTC min = {ttc_min:.2f}s\n(t = {ttc_min_time:.2f})",
+#             transform=plt.gca().transAxes,
+#             bbox=dict(facecolor="white", alpha=0.8)
+#         )
 
-        ax_dist.plot(common_times/fps, distances, color="blue", label="Distance")
-        ax_dist.axhline(distance_threshold, linestyle="--", color="red", label="Seuil interaction (5m)")
-        ax_dist.set_ylabel("Distance (m)")
-        ax_dist.set_title("Distance piéton-cycliste")
-        ax_dist.grid()
-        ax_dist.legend()
+#         ax_dist.plot(common_times/fps, distances, color="blue", label="Distance")
+#         ax_dist.axhline(distance_threshold, linestyle="--", color="red", label="Seuil interaction (5m)")
+#         ax_dist.set_ylabel("Distance (m)")
+#         ax_dist.set_title("Distance piéton-cycliste")
+#         ax_dist.grid()
+#         ax_dist.legend()
 
-        ax_angle.plot(common_times/fps, angles, color="green", label="Angle")
-        ax_angle.axhline(0, linestyle="--", color="black", alpha=0.5, label="Frontal (0°)")
-        ax_angle.axhline(90, linestyle="--", color="orange", label="Croisement (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
-        ax_angle.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
-        ax_angle.set_ylabel("Angle (deg)")
-        ax_angle.set_xlabel("Temps (s)")
-        ax_angle.set_title("Angle d'approche")
-        ax_angle.grid()
-        ax_angle.legend()
+#         ax_angle.plot(common_times/fps, angles, color="green", label="Angle")
+#         ax_angle.axhline(0, linestyle="--", color="black", alpha=0.5, label="Frontal (0°)")
+#         ax_angle.axhline(90, linestyle="--", color="orange", label="Croisement (90°)") # croisement latéral ou perpendiculaire mais pas forcément de collision
+#         ax_angle.axhline(180, linestyle="--", color="red", label="Opposition (180°)")
+#         ax_angle.set_ylabel("Angle (deg)")
+#         ax_angle.set_xlabel("Temps (s)")
+#         ax_angle.set_title("Angle d'approche")
+#         ax_angle.grid()
+#         ax_angle.legend()
 
-        intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
-        for ax in axes:
-            add_time_markers(ax, intervals_sec)
+#         intervals_sec = [(s / fps, e / fps) for (s, e) in intervals]
+#         for ax in axes:
+#             add_time_markers(ax, intervals_sec)
 
-        plt.tight_layout()
-        # plt.legend()
-        plt.show()
+#         plt.tight_layout()
+#         # plt.legend()
+#         plt.show()
     
-    if return_class:
-        from analysis_interactions import classify_ttc
-        return valid_times, ttc_values, ttc_min, classify_ttc(ttc_min_inter)
+#     if return_class:
+#         from analysis_interactions import classify_ttc
+#         return valid_times, ttc_values, ttc_min, classify_ttc(ttc_min_inter)
 
-    return valid_times, ttc_values, ttc_min
+#     return valid_times, ttc_values, ttc_min
 
 
-def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False, return_class=False):
+def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False):
     """
-    Calcule le TTAC (Time-To-Avoided-Collision point) entre deux agents.
-
-    TTAC = différence de temps d'arrivée au point de conflit (intersection des trajectoires)
-
-    Returns:
-        times, ttac_series, ttac_min, classification (optionnel)
+    Computes the TTAC (Time-To-Avoided-Collision point) between two agents.
+    TTAC = difference in arrival times at the conflict point (intersection of the trajectories).
     """
-
-    # récupérer données alignées
+    # retrieve aligned data
     gA = df[df[COL_ID] == id_A].sort_values(COL_TIME) # généralement le piéton (même si pas obligatoire)
     gB = df[df[COL_ID] == id_B].sort_values(COL_TIME) # généralement le cycliste
 
@@ -1008,26 +1083,26 @@ def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False, return_c
         pA = np.array([merged.iloc[i]["x_m_A"], merged.iloc[i]["y_m_A"]])
         pB = np.array([merged.iloc[i]["x_m_B"], merged.iloc[i]["y_m_B"]])
 
-        # calcul du TTAC que si usagers en interaction (les 2 dans un rayon de 5m)
+        # compute TTAC only when the users are interacting (both within a 5 m radius)
         distance = np.linalg.norm(pA - pB)
         if distance > 5.0:
             ttac_values.append(None)
             continue
 
-        # vitesses (approx dérivée)
+        # speeds
         pA_next = np.array([merged.iloc[i+1]["x_m_A"], merged.iloc[i+1]["y_m_A"]])
         pB_next = np.array([merged.iloc[i+1]["x_m_B"], merged.iloc[i+1]["y_m_B"]])
 
         vA = (pA_next - pA) * fps
         vB = (pB_next - pB) * fps
 
-        # éviter cas dégénérés
+        # avoid degenerate cases
         if np.linalg.norm(vA) < 1e-3 or np.linalg.norm(vB) < 1e-3:
             ttac_values.append(None)
             continue
 
-        # calcul intersection des trajectoires = point de conflit CP (en supposant vitesses et directions constantes, et avec 1 mètre de rayon autour du CP)
-        # résoudre : pA + tA*vA = pB + tB*vB
+        # Compute the trajectory intersection point = conflict point (CP), assuming constant speeds and directions, with a 1 m radius around the CP.
+        # solve : pA + tA*vA = pB + tB*vB
 
         A_mat = np.column_stack((vA, -vB))
         b_vec = pB - pA
@@ -1040,28 +1115,22 @@ def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False, return_c
             t_vals = np.linalg.solve(A_mat, b_vec)
             tA, tB = t_vals
 
-            # on ne garde que les futurs points (vérifie si le point de conflit est dans le futur des 2 trajectoires, il n'est pas dépassé)
-            # if tA < 0 or tB < 0:
-            #     ttac_values.append(None)
-            #     continue
-
-            # premier et second agents arrivant au CP
+            # first and second agents to reach the CP
             t_first = min(tA, tB)
             t_second = max(tA, tB)
 
-            if t_first < 0: # si le 1er agent qui arrive au CP a dépassé le CP, alors pas de calcul de TTAC
+            if t_first < 0: # if the first agent to reach the CP has already passed the CP, do not compute TTAC
                 ttac_values.append(None)
                 continue
 
             # ttac = abs(tA - tB)
-            ttac_values.append(t_second) # d'après l'article TTAC = max(t1, t2) (i.e. le 2ème agent qui atteint le CP)
-
+            ttac_values.append(t_second) # according to the article, TTAC = max(t1, t2) (i.e., the second agent to reach the CP)
         except:
             ttac_values.append(None)
 
     ttac_values = np.array(ttac_values, dtype=float)
 
-    # nettoyage pour ne prendre le min que parmis les valeurs différents de None
+    # filter out None values before computing the minimum
     valid = ttac_values[np.isfinite(ttac_values)]
 
     if len(valid) == 0:
@@ -1070,17 +1139,6 @@ def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False, return_c
     ttac_min = np.min(valid)
     min_idx = np.where(ttac_values == ttac_min)[0] # index du min
     first_time = times[:-1][min_idx[0]] / fps
-
-    # classification
-    def classify_ttac(x):
-        if x < 1:
-            return "CRITICAL"
-        elif x < 2:
-            return "HIGH"
-        elif x < 4:
-            return "MEDIUM"
-        else:
-            return "LOW"
 
     # plot
     if plot:
@@ -1098,29 +1156,26 @@ def compute_ttac(df, id_A, id_B, fps, start=None, end=None, plot=False, return_c
         plt.plot(times[:-1]/fps, ttac_values)
         # plt.axhline(ttac_min, linestyle="--", label=f"TTAC min={ttac_min:.2f}")
         plt.scatter(times[:-1][min_idx]/fps, ttac_values[min_idx], color="red", s=60, zorder=5, label=f"TTAC min={ttac_min:.2f}s (at {first_time:.2f}s)")
-        plt.title(f"Time To Avoided Collision Point (TTAC) during the interaction (ped {id_A} - cyc {id_B})")
-        plt.xlabel("Time (s)")
-        plt.ylabel("TTAC (s)")
+        plt.title(f"Time To Avoided Collision Point (TTAC) during the interaction (ped {id_A} - cyc {id_B})", fontsize=15, fontweight="bold")
+        plt.xlabel("Time (s)", fontsize=15)
+        plt.ylabel("TTAC (s)", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
         add_time_markers(plt.gca(), intervals_sec)
-        plt.legend()
+        plt.legend(fontsize=12)
         plt.grid()
+        plt.tight_layout()
         plt.show()
 
-    if return_class:
-        c_ttac = classify_ttac(ttac_min)
-        return times[:-1], ttac_values, ttac_min, c_ttac
-    else:
-        return times[:-1], ttac_values, ttac_min
+    return times[:-1], ttac_values, ttac_min
 
 
 ###############################################
-# Critères spatio-temporels des interactions groupe-individu et groupe-goupe
+# Spatio-temporal criteria for group–individual and group–group interactions
 ###############################################
 
 def compute_vector_direction_series(df_agent):
     """
-    Retourne une série de vecteurs direction normalisés
-    entre chaque frame consécutive.
+    Returns a series of normalized direction vectors between each pair of consecutive frames.
     """
     df_agent = df_agent.sort_values(COL_TIME)
 
@@ -1140,32 +1195,6 @@ def compute_vector_direction_series(df_agent):
 
     return np.array(directions), times[1:]
 
-
-# def compute_directions_for_ids(df, ids, t):
-#     # interprétation: [1, 0]-> droite, [0, 1] -> haut, [-1, 0] -> gauche
-#     dirs = []
-#     valid_ids = []
-
-#     for aid in ids:
-#         traj = df[df[COL_ID] == aid].sort_values(COL_TIME)
-
-#         curr = traj[traj[COL_TIME] == t]
-#         prev = traj[traj[COL_TIME] == t - 1]
-
-#         if curr.empty or prev.empty:
-#             continue
-
-#         dx = curr.iloc[0]["x_m"] - prev.iloc[0]["x_m"]
-#         dy = curr.iloc[0]["y_m"] - prev.iloc[0]["y_m"]
-
-#         norm = np.hypot(dx, dy)
-#         if norm == 0:
-#             continue
-
-#         dirs.append([dx / norm, dy / norm])
-#         valid_ids.append(aid)
-
-#     return np.array(dirs), np.array(valid_ids)
 
 def compute_directions_for_ids(df, ids, t, max_gap_frame=2):
     # interprétation: [1, 0]-> droite, [0, 1] -> haut, [-1, 0] -> gauche
@@ -1234,10 +1263,7 @@ def compute_direction_variation_old(directions):
 
 def compute_distance_series(df, id_A, id_B, distance_threshold=5.0, fps=None, start=None, end=None, plot=False, return_seconds=False):
     """
-    Distance entre deux agents au cours du temps.
-
-    Returns:
-        times, distances
+    Distance between 2 agents.
     """
 
     A = df[df[COL_ID] == id_A].sort_values(COL_TIME)
@@ -1267,7 +1293,7 @@ def compute_distance_series(df, id_A, id_B, distance_threshold=5.0, fps=None, st
         t_min = common_times[idx_min]
         t_min_plot = t_min / fps
 
-    if plot:
+    if plot and start is not None and end is not None:
         plt.figure(figsize=(10, 4))
         plt.plot(common_times / fps, distances)
         plt.axhline(distance_threshold, color="red", linestyle="--", label="Spatial interaction limit (5m)")
@@ -1275,10 +1301,11 @@ def compute_distance_series(df, id_A, id_B, distance_threshold=5.0, fps=None, st
         add_time_markers(plt.gca(), intervals_sec)
         if not np.isnan(t_min_plot):
             plt.scatter(t_min_plot, dist_min, color="red", zorder=5, label=f"Min distance = {dist_min:.2f}m (at {t_min_plot:.2f}s)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Distance (m)")
-        plt.title(f"Distance between pedestrian {id_A} and cyclist {id_B} accross time")
-        plt.legend()
+        plt.xlabel("Time (s)", fontsize=15)
+        plt.ylabel("Distance (m)", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
+        plt.title(f"Distance between pedestrian {id_A} and cyclist {id_B} accross time", fontsize=15, fontweight="bold")
+        plt.legend(fontsize=12)
         plt.grid()
         plt.tight_layout()
         plt.show()
@@ -1292,25 +1319,15 @@ def compute_distance_series(df, id_A, id_B, distance_threshold=5.0, fps=None, st
 
 def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=None, plot=False, return_seconds=False):
     """
-    Position relative B par rapport à A (B - A) (dans le repère de A, et non dans le repère global)
-
-    Returns:
-        times, dx, dy, distances
+    Relative position of cyclist compared to pedestrian (B - A) (in A's reference frame, rather than in the global reference frame)
     """
 
     A = df[df[COL_ID] == id_A].sort_values(COL_TIME)
     B = df[df[COL_ID] == id_B].sort_values(COL_TIME)
 
-    common_times = np.intersect1d(
-        A[COL_TIME].values,
-        B[COL_TIME].values
-    )
-
-    # if len(common_times) == 0:
-    #     return None
+    common_times = np.intersect1d(A[COL_TIME].values, B[COL_TIME].values)
 
     if len(common_times) == 0:
-        # print("ERREUR ICI !!!")
         return (
             np.array([]),
             np.array([]),
@@ -1333,8 +1350,6 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
     Bx = B_sync["x_m"].to_numpy()
     By = -B_sync["y_m"].to_numpy()
 
-    # dx = B_sync["x_m"].values - A_sync["x_m"].values
-    # dy = B_sync["y_m"].values - A_sync["y_m"].values
     x_rel = []
     y_rel = []
     distances = []
@@ -1345,7 +1360,7 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
 
         distances.append(np.linalg.norm(rel))
 
-        # direction du piéton
+        # pedestrian direction
         if i < len(common_times) - 1:
             heading = np.array([Ax[i+1] - Ax[i], Ay[i+1] - Ay[i]])
         else:
@@ -1354,7 +1369,7 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
         norm = np.linalg.norm(heading)
 
         if norm < 1e-6:
-            # piéton quasi immobile : on reprend la direction précédente
+            # nearly stationary pedestrian: use the previous direction
             if i == 0:
                 forward = np.array([1.0, 0.0])
             else:
@@ -1364,10 +1379,10 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
 
         forward_prev = forward
 
-        # axe gauche
+        # left axis
         left = np.array([-forward[1], forward[0]])
 
-        # projection dans le repère local du piéton (et non repère global)
+        # projection into the pedestrian's local reference frame (rather than the global reference frame)
         x_rel.append(np.dot(rel, forward))
         y_rel.append(np.dot(rel, left))
 
@@ -1375,28 +1390,27 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
     y_rel = np.array(y_rel)
     distances = np.array(distances)
 
-    # distances = np.hypot(dx, dy)
-
     if plot:
         plt.figure(figsize=(7, 7))
-        # Trajectoire relative
+        # relative trajectory
         plt.plot(x_rel, y_rel, "-o", markersize=3, linewidth=1.5, alpha=0.8)
 
 
         plt.axhline(0, color="red", linestyle="--", linewidth=2.0, label="Left (+) / Right (-) [m]")
         plt.axvline(0, color="black", linestyle="--", linewidth=2.0, label="Front (+) / Rear (-) [m]")
 
-        # Début et fin de l'interaction
+        # start and end if the interaction
         if start is not None and end is not None:
             plt.scatter(x_rel[start_idx], y_rel[start_idx], color="green", s=60, label=f"Start interaction (at {(start/fps):.2f}s)")
             plt.scatter(x_rel[end_idx], y_rel[end_idx], color="orange", s=60, label=f"End interaction (at {(end/fps):.2f}s)")
-        plt.xlabel("Relative x (m)")
-        plt.ylabel("Relative y (m)")
-        plt.title(f"Relative position of cyclist {id_B} with respect to pedestrian {id_A} (in pedestrian local frame)")
+        plt.xlabel("Relative x (m)", fontsize=15)
+        plt.ylabel("Relative y (m)", fontsize=15)
+        plt.tick_params(axis="both", labelsize=13)
+        plt.title(f"Relative position of cyclist {id_B} with respect to pedestrian {id_A} (in pedestrian local frame)", fontsize=15, fontweight="bold")
         plt.axis("equal")
         # plt.gca().invert_yaxis()
         plt.grid(True)
-        plt.legend()
+        plt.legend(fontsize=12)
         plt.tight_layout()
         plt.show()
 
@@ -1413,17 +1427,12 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                                          save_gif=False, output_path="clusters.gif",
                                          highlight_id=None):
     """
-    Calcule DBSCAN + convex hull frame par frame.
+    Computes DBSCAN clustering and convex hulls frame by frame.
 
-    2 DBSCAN appliqués:
-        1. DBSCAN directionnel (clustering en fonciton de la direction des agents)
-        2. DBSCAN spatial (clustering en fonction de la distance entre agents allant dans la même direction)
-
-    Returns:
-        history[t] = {
-            "ped": {...},
-            "cyc": {...}
-        }
+    Two DBSCAN algorithms are applied:
+        1. Directional DBSCAN (clustering based on agents' movement directions)
+        2. Spatial DBSCAN (clustering based on the distance between agents
+        moving in the same direction)
     """
 
     history = {}
@@ -1455,7 +1464,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
             noise_ids = []
 
             # =========================================================
-            # 1) DBSCAN DIRECTIONNEL (premier filtrage)
+            # 1) DBSCAN DIRECTION
             # =========================================================
             dirs, valid_ids_all = compute_directions_for_ids(df, ids, t)
 
@@ -1496,7 +1505,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                         valid_groups.append((None, sub_ids, sub_pts))
 
             # =========================================================
-            # 2) DBSCAN SPATIAL (sur chaque groupe directionnel)
+            # 2) DBSCAN SPATIAL (on each direction cluster)
             # =========================================================
             for _, group_ids, group_pts in valid_groups:
 
@@ -1579,7 +1588,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                         label=f'Highlighted agent ({highlight_id})')
                 )
 
-            ax.legend(handles=handles, loc="upper right")
+            ax.legend(handles=handles, loc="upper right", fontsize=12)
 
             t = times[i]
             data = history[t]
@@ -1633,9 +1642,12 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                     else:
                         ax.text(x + 0.2, y - 0.2, str(aid), fontsize=8, color=color)
 
-            ax.set_title(f"DBSCAN clusters and convex hulls - Frame {t} ({t/fps:.2f}s)")
+            ax.set_title(f"DBSCAN clusters and convex hulls - Frame {t} ({t/fps:.2f}s)", fontsize=15, fontweight="bold")
             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
             ax.set_ylim(df["y_m"].max(), df["y_m"].min())
+            ax.set_xlabel("x (m)", fontsize=15)
+            ax.set_ylabel("y (m)", fontsize=15)
+            ax.tick_params(axis="both", labelsize=13)
             ax.grid()
 
         ani = FuncAnimation(fig, update, frames=len(times), interval=1000 / fps)
@@ -1643,7 +1655,7 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
         if save_gif:
             ani.save(output_path, writer=PillowWriter(fps=fps))
             print(f"Saved: {output_path}")
-
+        fig.tight_layout()
         plt.show()
 
     return history
@@ -1663,20 +1675,6 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
 #         highlight_id=None):
 #     """
 #     Calcule DBSCAN + convex hull frame par frame avec un seul DBSCAN.
-
-#     Le clustering utilise un espace augmenté :
-    
-#         [x, y, lambda_dir * dx, lambda_dir * dy]
-
-#     permettant de prendre en compte :
-#         - proximité spatiale
-#         - similarité de direction
-
-#     Returns:
-#         history[t] = {
-#             "ped": {...},
-#             "cyc": {...}
-#         }
 #     """
 
 #     history = {}
@@ -1842,12 +1840,9 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
 
 def match_clusters(prev_clusters, curr_clusters):
     """
-    Associe clusters entre t-1 et t via overlap des points.
+    Associates clusters between t-1 and t based on point overlap.
 
-    prev_clusters / curr_clusters = liste de sets d'IDs
-
-    Returns:
-        matches: dict prev_id -> list of curr_ids
+    prev_clusters / curr_clusters = list of sets of IDs
     """
 
     matches = {}
@@ -1866,16 +1861,11 @@ def match_clusters(prev_clusters, curr_clusters):
 
 def detect_cluster_splits(prev_clusters, curr_clusters):
     """
-    Détecte si un cluster se sépare.
-
-    Returns:
-        splits = [(prev_id, [new_ids])]
+    Detects if a cluster has split.
+    Returns: splits = [(prev_id, [new_ids])]
     """
-
     matches = match_clusters(prev_clusters, curr_clusters)
-
     splits = []
-
     for prev_id, curr_ids in matches.items():
         if len(curr_ids) >= 2:
             splits.append((prev_id, curr_ids))
@@ -1885,16 +1875,16 @@ def detect_cluster_splits(prev_clusters, curr_clusters):
 
 def is_point_in_hull(point, hull_pts):
     """
-    Test si un point est dans un convex hull.
+    Verifies if a road user (e.g. a cyclist) is in a convex hull.
     """
     path = Path(hull_pts)
     return path.contains_point(point)
 
 
-def is_cyclist_near_cluster(cluster_pts, cyclists_pts, threshold=2.0):
+def is_cyclist_near_cluster(cluster_pts, cyclists_pts, threshold=2.5):
     """
-    Vérifie si un cycliste est proche d'un cluster.
-    Permet de vérifier si la séparation d'un cluster en 2 est due au passage d'un cycliste.
+    Checks whether a cyclist is close to a cluster.
+    Used to determine whether a cluster splitting into two is caused by a cyclist passing through it.
     """
     for c in cyclists_pts:
         dists = np.linalg.norm(cluster_pts - c, axis=1)
@@ -1903,19 +1893,17 @@ def is_cyclist_near_cluster(cluster_pts, cyclists_pts, threshold=2.0):
     return False
 
 
-def detect_split_events_with_cyclists(history, distance_threshold=2.0):
+def detect_split_events_with_cyclists(history, distance_threshold=2.5):
     """
-    Détecte les splits de clusters piétons et vérifie si un cycliste est impliqué.
+    Detects pedestrian cluster splits and checks whether a cyclist is involved.
     """
 
     events = []
     times = sorted(history.keys())
-
     prev_clusters = None
 
     for t in times:
         data = history[t]
-
         if data["ped"] is None:
             prev_clusters = None
             continue
@@ -1924,7 +1912,7 @@ def detect_split_events_with_cyclists(history, distance_threshold=2.0):
         ped_points = data["ped"]["points"]
         ped_ids = data["ped"]["ids"]
 
-        # cyclistes
+        # cyclists
         cyc_pts = []
         cyc_ids = []
 
@@ -1940,23 +1928,19 @@ def detect_split_events_with_cyclists(history, distance_threshold=2.0):
 
                 prev_ids = list(prev_clusters[prev_id])
 
-                # récupérer positions du cluster AVANT split
+                # retrieve the cluster positions BEFORE the split
                 mask = np.isin(ped_ids, prev_ids)
                 prev_pts = ped_points[mask]
 
                 if len(prev_pts) == 0:
                     continue
 
-                # vérifier cycliste
+                # verify cyclist
                 involved = False
                 involved_cyclists = []
 
                 if len(cyc_pts) > 0:
-                    involved = is_cyclist_near_cluster(
-                        prev_pts,
-                        cyc_pts,
-                        threshold=distance_threshold
-                    )
+                    involved = is_cyclist_near_cluster(prev_pts, cyc_pts, threshold=distance_threshold)
                 
                 for c_pt, c_id in zip(cyc_pts, cyc_ids):
                     dists = np.linalg.norm(prev_pts - c_pt, axis=1)
@@ -2012,7 +1996,7 @@ def detect_cyclists_in_hulls(history):
 
 def min_distance_inter_agent(A, B):
     """
-    A, B : arrays (N,2) et (M,2). Distance minimale inter-agent (cycliste VS piéton, ou cycliste VS groupe).
+    A, B: arrays (N, 2) and (M, 2). Minimum inter-agent distance (cyclist vs. pedestrian or cyclist vs. group).
     """
     if len(A) == 0 or len(B) == 0:
         return np.nan
@@ -2027,7 +2011,7 @@ def min_distance_point_cluster(point, cluster_pts):
 
 
 def min_distance_clusters(a_pts, b_pts):
-    # Calcule la distance minimale entre 2 clusters, soit entre les 2 points de chaque cluster les plus proches
+    # Computes the minimum distance between two clusters, i.e. the distance between the closest pair of points, one from each cluster.
     d = np.linalg.norm(a_pts[:, None, :] - b_pts[None, :, :], axis=2)
     return np.min(d)
 
@@ -2038,7 +2022,6 @@ def hausdorff_distance(A, B):
 
     d_ab = directed_hausdorff(A, B)[0]
     d_ba = directed_hausdorff(B, A)[0]
-
     return max(d_ab, d_ba)
 
 
@@ -2047,10 +2030,8 @@ def modified_hausdorff(A, B):
         return np.nan
 
     dists = cdist(A, B)
-
     mean_ab = np.mean(np.min(dists, axis=1))
     mean_ba = np.mean(np.min(dists, axis=0))
-
     return max(mean_ab, mean_ba)
 
 
@@ -2079,7 +2060,7 @@ def compute_cluster_distances(history, fps=None, plot=False):
             results[t].append(res)
     
     if plot:
-        # récupérer tous les cluster_ids existants
+        # retrieve all existing cluster_ids
         cluster_ids = set()
         for t in results:
             for r in results[t]:
@@ -2117,15 +2098,12 @@ def compute_cluster_distances(history, fps=None, plot=False):
             plt.plot(times_arr, haus_vals, linestyle="--", label=f"Cluster {cid} - haus")
             plt.plot(times_arr, mod_vals, linestyle=":", label=f"Cluster {cid} - mod")
 
-        plt.xlabel("Temps (s)" if fps else "Frame")
+        plt.xlabel("Time (s)" if fps else "Frame")
         plt.ylabel("Distance (m)")
-        plt.title("Distances cluster piétons - cyclistes")
+        plt.title("Distances cluster pedetsrians - cyclists")
         plt.legend(fontsize=8)
         plt.grid()
-
         plt.show()
-
-
     return results
 
 
@@ -2235,7 +2213,7 @@ def extract_entities(frame_data):
         if data is None:
             continue
 
-        # ===== CLUSTERS =====
+        # clusters
         for pts, ids in zip(data["clusters"], data["clusters_ids"]):
             entities.append({
                 "type": cls_name + "_cluster",
@@ -2243,7 +2221,7 @@ def extract_entities(frame_data):
                 "ids": set(ids)
             })
 
-        # ===== NOISE =====
+        # noise
         if len(data["noise"]) > 0:
             # chaque point bruit = entité individuelle
             for pt, aid in zip(data["noise"], data["noise_ids"]):
@@ -2262,7 +2240,7 @@ def min_distance(A, B):
 
 def detect_interactions_at_frame(frame_data, threshold=5.0):
     """
-    Interactions à UNE frame avec IDs
+    Single-frame interactions with IDs
     """
 
     entities = extract_entities(frame_data)
@@ -2298,8 +2276,8 @@ def detect_interactions_at_frame(frame_data, threshold=5.0):
 
 def same_interaction(inter, active_inter):
     """
-    Vérifie si une interaction correspond à une interaction active
-    Critère : overlap des IDs
+    Checks whether an interaction matches an active interaction.
+    Criterion: ID overlap.
     """
 
     if inter["type_ped"] != active_inter["type_ped"]:
@@ -2315,15 +2293,14 @@ def same_interaction(inter, active_inter):
 
 def build_interaction_events(history, threshold=5.0, fps=None):
     """
-    Construit des interactions (avec cluster et bruit) avec :
+    Builds interactions (including clusters and noise) with:
     - start
     - end
-    - ids impliqués (union sur le temps)
-    Fonction finale qui doit être utilisée pour capter toutes les interactions d'un ensemble de trajectoires filtré.
+    - involved IDs (union over time)
+    Final function to be used to capture all interactions from a filtered set of trajectories.
     """
 
     max_gap = 2 # 2 frames manquantes max par interaction
-
     active_events = []
     finished_events = []
 
@@ -2341,7 +2318,6 @@ def build_interaction_events(history, threshold=5.0, fps=None):
             for i, act in enumerate(active_events):
 
                 if same_interaction(inter, act):
-
                     # update event
                     act["end"] = t
                     act["ids_ped"].update(inter["ids_ped"])
@@ -2517,26 +2493,9 @@ def compute_group_density(points):
     return len(points) / area if area > 0 else 0
 
 
-def compute_direction(df_agent):
-    df_agent = df_agent.sort_values(COL_TIME)
-
-    if len(df_agent) < 2:
-        return np.array([0, 0])
-
-    dx = df_agent["x_m"].iloc[-1] - df_agent["x_m"].iloc[0]
-    dy = df_agent["y_m"].iloc[-1] - df_agent["y_m"].iloc[0]
-
-    vec = np.array([dx, dy])
-    norm = np.linalg.norm(vec)
-
-    return vec / norm if norm > 0 else vec
-
-
-
 def compute_group_direction_angle(df, ped_ids, cyc_ids, t):
     """
-    Angle entre direction moyenne des deux groupes (en degrés)
-    basé sur le mouvement temporel (t-1 -> t)
+    Angle between the mean directions of the two groups (in degrees), based on temporal motion (t-1 -> t)
     """
 
     def group_velocity(ids):
@@ -2593,85 +2552,9 @@ def get_points_from_ids(frame_data, ids, cls_name):
     return np.array(points) if points else None
 
 
-def compute_interaction_features(event, history, df):
-    start = event["start"]
-    end = event["end"]
-
-    distances = []
-    hausdorffs = []
-    hausdorff_mods = []
-    # rel_speeds = []
-    rel_speeds_series = []
-    times = []
-    angles = []
-
-    diam_A = []
-    diam_B = []
-    dens_A = []
-    dens_B = []
-
-    for t in range(start, end + 1):
-
-        frame = history.get(t)
-        if frame is None:
-            continue
-
-        A_type = "cyc" if "cyc" in event["type_ped"] else "ped"
-        B_type = "cyc" if "cyc" in event["type_cyc"] else "ped"
-
-        A = get_points_from_ids(frame, event["ids_cyc"], A_type)
-        B = get_points_from_ids(frame, event["ids_ped"], B_type)
-
-        if A is None or B is None:
-            continue
-
-        # ===== DISTANCES =====
-        distances.append(min_distance(A, B))
-        hausdorffs.append(hausdorff_distance(A, B))
-        hausdorff_mods.append(modified_hausdorff(A, B))
-
-        # ===== VITESSE =====
-        vA = compute_group_velocity_at_t(df, event["ids_A"], t)
-        vB = compute_group_velocity_at_t(df, event["ids_B"], t)
-        # rel_speeds.append(abs(vA - vB))
-
-        if vA is not None and vB is not None:
-            rel_speeds_series.append(abs(vA - vB))
-            times.append(t)
-
-        # ===== DIAM / DENS =====
-        diam_A.append(compute_group_diameter(A))
-        diam_B.append(compute_group_diameter(B))
-
-        dens_A.append(compute_group_density(A))
-        dens_B.append(compute_group_density(B))
-
-        # ===== ANGLE =====
-        # dir_A = compute_direction(df[df[COL_ID].isin(event["ids_A"])])
-        dir_A = compute_group_direction_angle(df, event["ids_A"], event["ids_B"], t)
-        # vec_AB = relative_position(A, B)
-
-        # angles.append(angle_between(dir_A, vec_AB))
-        angles.append(dir_A)
-
-    return {
-        "distance": distances,
-        "hausdorff": hausdorffs,
-        "modified_hausdorff": hausdorff_mods,
-        "relative_speed_series": rel_speeds_series,
-        "diameter_A_series": diam_A,
-        "diameter_B_series": diam_B,
-        "density_A_series": dens_A,
-        "density_B_series": dens_B,
-        "direction_angle_series": angles
-    }
-
 
 def is_noise_only_interaction(event):
-    return (
-        "noise" in event["type_ped"]
-        and "noise" in event["type_cyc"]
-    )
+    return ("noise" in event["type_ped"] and "noise" in event["type_cyc"])
 
 
 def get_entity(frame, ids, cls_name):
@@ -2736,110 +2619,12 @@ def get_split_events_for_interaction(interaction, split_events):
 
 
 ################################
-# Fonctions pour évaluer la réactivité des agents lors des interactions
+# Functions for evaluating agent reactivity during interactions
 ################################
 
-def compute_speed_variation_no_ref_kmh(df_agent, inter_start, inter_end, fps):
+def compute_speed_variation_with_ref(df_agent, inter_start, inter_end, fps):
     """
-    Variation de vitesse sans référence (différences locales). Permet de repréer les changments brusques.
-    """
-
-    df = df_agent.sort_values(COL_TIME).copy()
-
-    _, _, speed_kmh = compute_speed(df, fps)
-
-    df = df.copy()
-    # df["speed_kmh"] = speed_kmh
-    df["speed_kmh"] = np.nan
-    df.loc[df.index[1:], "speed_kmh"] = speed_kmh
-
-    # valeur de référence sur 10 frames avant le début de l'interaction
-    pre_inter = df[(df[COL_TIME] < inter_start) & (df[COL_TIME] >= inter_start - 10)].copy()
-    v_ref = pre_inter["speed_kmh"].mean()
-
-    inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
-    inter = inter.dropna(subset=["speed_kmh"])
-
-    if len(inter) < 2:
-        return None
-
-    speeds_kmh = inter["speed_kmh"].values
-    times = inter[COL_TIME].values
-
-    window = min(5, len(speeds_kmh))
-    speed_smooth = (pd.Series(speeds_kmh).rolling(window=window, center=True, min_periods=1).mean().to_numpy())
-
-    delta_v_kmh = np.abs(np.diff(speed_smooth))
-
-    # normalisation
-    delta_v_norm_kmh = delta_v_kmh / (speed_smooth[:-1] + 1e-6)
-
-    # calcul de la dérivée de la vitesse
-    dt = 1 / fps
-    dv = np.gradient(speed_smooth, dt)
-
-    # moyenne de la dérivée (prendre eps=0.05 ? et voir si mv < -0.05 -> décélération ou mv > 0.05 -> accélération)
-    mean_dv = np.nanmean(dv)
-
-    # accélération brute (réactions rapides/brusques)
-    dv_abs = np.abs(dv)
-
-    fast_reaction = np.nanmax(dv_abs)   # pic de réaction
-
-    # accélération soutenue (trend) (si négatif, décélération)
-    t = np.arange(len(speed_smooth)) / fps
-
-    # régression linéaire simple
-    slope = np.polyfit(t, speed_smooth, 1)[0]  # km/h/s
-
-    # séparation accel / decel (pour quantifier et voir si accélère plus que décélération)
-    accel_part = dv[dv > 0]
-    decel_part = dv[dv < 0]
-
-    mean_accel = np.nanmean(accel_part) if len(accel_part) > 0 else 0
-    mean_decel = np.nanmean(decel_part) if len(decel_part) > 0 else 0
-
-    # par rapport à la valeur de référence
-    speed_change = speed_smooth - v_ref
-    mean_speed_change = np.nanmean(speed_change) # positif -> accélération, négatif -> décélération
-
-    relative_speed_change = (speed_smooth - v_ref) / (v_ref + 1e-6)
-
-    mean_relative_change = np.nanmean(relative_speed_change)
-
-    return {
-        "times": times[1:],
-        # "speeds": speeds_kmh[1:],
-        # "delta_v": delta_v_kmh,
-        # "delta_v_norm": delta_v_norm_kmh,
-        "mean_delta": np.nanmean(delta_v_norm_kmh),
-        "max_delta": np.nanmax(delta_v_norm_kmh),
-        # "dv": dv,
-        "mean_dv": mean_dv,
-        # "speed_smooth": speed_smooth
-        "max_abs_acceleration": fast_reaction,
-
-        # tendance globale
-        "trend_slope": slope,
-
-        # structure comportementale
-        "mean_acceleration": mean_accel,
-        "mean_deceleration": mean_decel,
-
-        # indicateur global
-        "reactivity_score": np.nanmean(dv_abs),
-
-        "reference_speed": v_ref,
-
-        "mean_speed_change": mean_speed_change,
-
-        "mean_relative_speed_change": mean_relative_change
-    }
-
-
-def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
-    """
-    Variation de vitesse sans référence (différences locales). Permet de repréer les changments brusques.
+    Speed variation relative to a reference (10 frames before the interaction). Used to detect abrupt changes
     """
 
     df = df_agent.sort_values(COL_TIME).copy()
@@ -2847,7 +2632,6 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
     _, speed_ms, _ = compute_speed(df, fps)
 
     df = df.copy()
-    # df["speed_kmh"] = speed_kmh
     df["speed_ms"] = np.nan
     df.loc[df.index[1:], "speed_ms"] = speed_ms
 
@@ -2940,400 +2724,144 @@ def compute_speed_variation_no_ref(df_agent, inter_start, inter_end, fps):
     }
 
 
-def compute_speed_variation_with_vref(
-    df,
-    agent_id,
-    interaction_start,
-    interaction_end,
-    fps,
-    pre_frames=10,
-    relative=True
-):
-    """
-    Variation de vitesse par rapport à une vitesse de référence.
 
-    Parameters
-    ----------
-    df : DataFrame
-    agent_id : int
-    interaction_start : int
-    interaction_end : int
-    fps : float
-    pre_frames : int
-        Nombre de frames avant interaction pour calculer v_ref
-    relative : bool
-        True -> variation relative
-        False -> variation absolue
-
-    Returns
-    -------
-    dict avec :
-        - v_ref
-        - times
-        - speeds
-        - delta_v
-        - mean_delta
-        - max_delta
-    """
-
-    traj = df[df[COL_ID] == agent_id].sort_values(COL_TIME)
-
-    # =========================
-    # vitesse instantanée
-    # =========================
-
-    traj = traj.copy()
-
-    traj["dx"] = traj["x_m"].diff()
-    traj["dy"] = traj["y_m"].diff()
-    traj["dt"] = traj[COL_TIME].diff() / fps
-
-    traj["speed"] = (
-        np.hypot(traj["dx"], traj["dy"])
-        / traj["dt"].replace(0, np.nan)
-    )
-
-    # =========================
-    # vitesse de référence
-    # =========================
-
-    pre_mask = (
-        (traj[COL_TIME] >= interaction_start - pre_frames)
-        & (traj[COL_TIME] < interaction_start)
-    )
-
-    vref_values = traj.loc[pre_mask, "speed"].dropna()
-
-    if len(vref_values) == 0:
-        return None
-
-    v_ref = np.mean(vref_values)
-
-    if v_ref == 0:
-        return None
-
-    # =========================
-    # interaction
-    # =========================
-
-    inter_mask = (
-        (traj[COL_TIME] >= interaction_start)
-        & (traj[COL_TIME] <= interaction_end)
-    )
-
-    inter = traj.loc[inter_mask].copy()
-
-    speeds = inter["speed"].values
-    times = inter[COL_TIME].values
-
-    # =========================
-    # variation
-    # =========================
-
-    if relative:
-        delta_v = np.abs(speeds - v_ref) / v_ref
-    else:
-        delta_v = np.abs(speeds - v_ref)
-
-    return {
-        "v_ref": v_ref,
-        "times": times,
-        "speeds": speeds,
-        "delta_v": delta_v,
-        "mean_delta": np.nanmean(delta_v),
-        "max_delta": np.nanmax(delta_v)
-    }
-
-
-def compute_direction_variation(df_agent, inter_start, inter_end, fps):
-    """
-    Calcule la variation de direction pendant une interaction.
-
-    Méthode :
-    - direction via vecteurs unitaires (dx, dy)
-    - lissage des vecteurs (= moyenne glissante sur fenêtre de 3, à voir si pas 5 plutôt)
-    - dérivée angulaire entre directions successives
-    """
-
-    from sklearn.linear_model import LinearRegression
-
-    df = df_agent.sort_values(COL_TIME).copy()
-
-    # calcul direction brute
-    # dx = df["x_m"].diff()
-    # dy = df["y_m"].diff()
-    k = 2
-    dx = df["x_m"].shift(-k) - df["x_m"].shift(k)
-    dy = df["y_m"].shift(-k) - df["y_m"].shift(k)
-
-    vec = np.stack([dx, dy], axis=1)
-
-    norms = np.linalg.norm(vec, axis=1)
-    norms[norms == 0] = np.nan
-
-    dir_vec = vec / norms[:, None]
-
-    df["dx"] = dir_vec[:, 0]
-    df["dy"] = dir_vec[:, 1]
-
-    # lissage des vecteurs via moyenne glissante
-    df["dx_smooth"] = (pd.Series(df["dx"]).rolling(window=5, center=True, min_periods=1).mean())
-
-    df["dy_smooth"] = (pd.Series(df["dy"]).rolling(window=5, center=True, min_periods=1).mean())
-
-    # renormalisation
-    smooth_vec = np.stack([df["dx_smooth"], df["dy_smooth"]], axis=1)
-    smooth_norm = np.linalg.norm(smooth_vec, axis=1)
-    smooth_norm[smooth_norm == 0] = np.nan
-
-    df["dx_smooth"] = df["dx_smooth"] / smooth_norm
-    df["dy_smooth"] = df["dy_smooth"] / smooth_norm
-
-    # extraction interaction
-    inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
-
-    if len(inter) < 2:
-        return None
-
-    v = inter[["dx_smooth", "dy_smooth"]].values
-    times = inter[COL_TIME].values
-
-    # direction inertielle de référence (25% des frmaes de l'interaction)
-    n_ref = max(2, int(len(v) * 0.25))
-    ref_vec = np.nanmean(v[:n_ref], axis=0)
-    ref_norm = np.linalg.norm(ref_vec)
-    if ref_norm == 0 or np.isnan(ref_norm):
-        return None
-
-    v_ref = ref_vec / ref_norm
-
-    # dérivée directionnelle (angle entre vect, variation angulaire par frame) VARIATION LOCALE
-    dtheta = [] # en radians
-    omega_series = [] # vitesse angulaire (= rapidité de réaction dans le changement de direction)
-    dt = 1 / fps
-
-    for i in range(len(v) - 1):
-        v1 = v[i]
-        v2 = v[i + 1]
-
-        norm1 = np.linalg.norm(v1)
-        norm2 = np.linalg.norm(v2)
-
-        if norm1 == 0 or norm2 == 0:
-            dtheta.append(np.nan)
-            continue
-
-        cosang = np.clip(np.dot(v1, v2) / (norm1 * norm2), -1.0, 1.0)
-        angle = np.arccos(cosang)
-
-        omega = angle / dt # en rad / s
-        omega_series.append(omega)
-
-        dtheta.append(angle)
-
-    dtheta = np.array(dtheta)
-
-    mean_dtheta = np.nanmean(dtheta)
-    max_dtheta = np.nanmax(dtheta)
-
-    # stabilité directionnelle
-    stability = 1.0 / (1.0 + np.nanstd(dtheta))
-
-    # dérivation globale par rapp à la direction inertielle
-    dtheta_ref = [] # en degrés
-    for vt in v:
-
-        normt = np.linalg.norm(vt)
-
-        if normt == 0 or np.isnan(normt):
-            dtheta_ref.append(np.nan)
-            continue
-
-        cosang = np.clip(np.dot(v_ref, vt), -1.0, 1.0)
-
-        angle = np.arccos(cosang)
-
-        dtheta_ref.append(np.degrees(angle)) 
-
-    dtheta_ref = np.array(dtheta_ref)
-
-    return {
-        "times": inter[COL_TIME].values[1:],
-        # "direction_vectors": v,
-        # "dtheta": dtheta,
-        "mean_dtheta": mean_dtheta,
-        "max_dtheta": max_dtheta,
-        "direction_stability": stability,
-        # "omega": omega_series,
-        "mean_omega": np.mean(np.array(omega_series)), # peut-être pas si utile
-        "cum_dtheta": np.nansum(dtheta), # rotation/dérivation cumulative
-        # "dtheta_ref": dtheta_ref,
-        "mean_dtheta_ref": np.nanmean(dtheta_ref),
-        "max_dtheta_ref": np.nanmax(dtheta_ref),
-        "std_ref": np.nanstd(dtheta_ref),
-        "cum_dtheta_ref": np.nansum(dtheta_ref),
-        "stability": 1 / (1 + np.nanstd(dtheta_ref)) # division inversement proportionnelle avec écart-type
-
-    }
-
-
-
-# def compute_direction_variation(
-#     df_agent,
-#     inter_start,
-#     inter_end,
-#     fps,
-#     window=5
-# ):
+# def compute_direction_variation(df_agent, inter_start, inter_end, fps):
 #     """
-#     Variation de direction via régression locale.
+#     Calcule la variation de direction pendant une interaction.
 
 #     Méthode :
-#     - direction estimée par régression linéaire locale
-#     - calcul de la déviation inertielle
-#     - calcul vitesse angulaire
+#     - direction via vecteurs unitaires (dx, dy)
+#     - lissage des vecteurs (= moyenne glissante sur fenêtre de 3, à voir si pas 5 plutôt)
+#     - dérivée angulaire entre directions successives
 #     """
 
 #     from sklearn.linear_model import LinearRegression
 
 #     df = df_agent.sort_values(COL_TIME).copy()
 
-#     times_all = df[COL_TIME].values
-#     x_all = df["x_m"].values
-#     y_all = df["y_m"].values
+#     # calcul direction brute
+#     # dx = df["x_m"].diff()
+#     # dy = df["y_m"].diff()
+#     k = 2
+#     dx = df["x_m"].shift(-k) - df["x_m"].shift(k)
+#     dy = df["y_m"].shift(-k) - df["y_m"].shift(k)
 
-#     n = len(df)
+#     vec = np.stack([dx, dy], axis=1)
 
-#     dir_vectors = []
+#     norms = np.linalg.norm(vec, axis=1)
+#     norms[norms == 0] = np.nan
 
-#     # direction locale par régression
+#     dir_vec = vec / norms[:, None]
 
-#     for i in range(n):
+#     df["dx"] = dir_vec[:, 0]
+#     df["dy"] = dir_vec[:, 1]
 
-#         i0 = max(0, i - window)
-#         i1 = min(n, i + window + 1)
+#     # lissage des vecteurs via moyenne glissante
+#     df["dx_smooth"] = (pd.Series(df["dx"]).rolling(window=5, center=True, min_periods=1).mean())
 
-#         t_win = times_all[i0:i1].reshape(-1, 1)
+#     df["dy_smooth"] = (pd.Series(df["dy"]).rolling(window=5, center=True, min_periods=1).mean())
 
-#         if len(t_win) < 2:
-#             dir_vectors.append([np.nan, np.nan])
-#             continue
+#     # renormalisation
+#     smooth_vec = np.stack([df["dx_smooth"], df["dy_smooth"]], axis=1)
+#     smooth_norm = np.linalg.norm(smooth_vec, axis=1)
+#     smooth_norm[smooth_norm == 0] = np.nan
 
-#         # régression x(t)
-#         reg_x = LinearRegression().fit(t_win, x_all[i0:i1])
+#     df["dx_smooth"] = df["dx_smooth"] / smooth_norm
+#     df["dy_smooth"] = df["dy_smooth"] / smooth_norm
 
-#         # régression y(t)
-#         reg_y = LinearRegression().fit(t_win, y_all[i0:i1])
+#     # extraction interaction
+#     inter = df[(df[COL_TIME] >= inter_start) & (df[COL_TIME] <= inter_end)].copy()
 
-#         vx = reg_x.coef_[0]
-#         vy = reg_y.coef_[0]
-
-#         norm = np.hypot(vx, vy)
-
-#         if norm == 0:
-#             dir_vectors.append([np.nan, np.nan])
-#         else:
-#             dir_vectors.append([vx / norm, vy / norm])
-
-#     dir_vectors = np.array(dir_vectors)
-
-#     df["dx_dir"] = dir_vectors[:, 0]
-#     df["dy_dir"] = dir_vectors[:, 1]
-
-#     # interaction
-
-#     inter = df[
-#         (df[COL_TIME] >= inter_start) &
-#         (df[COL_TIME] <= inter_end)
-#     ].copy()
-
-#     if len(inter) < 3:
+#     if len(inter) < 2:
 #         return None
 
-#     v = inter[["dx_dir", "dy_dir"]].values
+#     v = inter[["dx_smooth", "dy_smooth"]].values
+#     times = inter[COL_TIME].values
 
-#     # direction inertielle
-
-#     start_pt = inter[["x_m", "y_m"]].iloc[0].values
-#     end_pt = inter[["x_m", "y_m"]].iloc[-1].values
-
-#     inertial = end_pt - start_pt
-
-#     inertial_norm = np.linalg.norm(inertial)
-
-#     if inertial_norm == 0:
+#     # direction inertielle de référence (25% des frmaes de l'interaction)
+#     n_ref = max(2, int(len(v) * 0.25))
+#     ref_vec = np.nanmean(v[:n_ref], axis=0)
+#     ref_norm = np.linalg.norm(ref_vec)
+#     if ref_norm == 0 or np.isnan(ref_norm):
 #         return None
 
-#     inertial = inertial / inertial_norm
+#     v_ref = ref_vec / ref_norm
 
-#     # déviation inertielle
-
-#     dtheta_ref = []
-
-#     for vi in v:
-
-#         if np.any(np.isnan(vi)):
-#             dtheta_ref.append(np.nan)
-#             continue
-
-#         dot = np.clip(np.dot(vi, inertial), -1.0, 1.0)
-
-#         angle = np.degrees(np.arccos(dot))
-
-#         dtheta_ref.append(angle)
-
-#     dtheta_ref = np.array(dtheta_ref)
-
-#     # dérivée angulaire
-
-#     omega = []
-
-#     dt = 1.0 / fps
+#     # dérivée directionnelle (angle entre vect, variation angulaire par frame) VARIATION LOCALE
+#     dtheta = [] # en radians
+#     omega_series = [] # vitesse angulaire (= rapidité de réaction dans le changement de direction)
+#     dt = 1 / fps
 
 #     for i in range(len(v) - 1):
-
 #         v1 = v[i]
 #         v2 = v[i + 1]
 
-#         if np.any(np.isnan(v1)) or np.any(np.isnan(v2)):
-#             omega.append(np.nan)
+#         norm1 = np.linalg.norm(v1)
+#         norm2 = np.linalg.norm(v2)
+
+#         if norm1 == 0 or norm2 == 0:
+#             dtheta.append(np.nan)
 #             continue
 
-#         dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
+#         cosang = np.clip(np.dot(v1, v2) / (norm1 * norm2), -1.0, 1.0)
+#         angle = np.arccos(cosang)
 
-#         angle = np.arccos(dot)
+#         omega = angle / dt # en rad / s
+#         omega_series.append(omega)
 
-#         omega.append(angle / dt) # c'est bien en rad / s
+#         dtheta.append(angle)
 
-#     omega = np.array(omega)
+#     dtheta = np.array(dtheta)
 
-#     stability = 1 / (1 + np.nanstd(dtheta_ref))
+#     mean_dtheta = np.nanmean(dtheta)
+#     max_dtheta = np.nanmax(dtheta)
+
+#     # stabilité directionnelle
+#     stability = 1.0 / (1.0 + np.nanstd(dtheta))
+
+#     # dérivation globale par rapp à la direction inertielle
+#     dtheta_ref = [] # en degrés
+#     for vt in v:
+
+#         normt = np.linalg.norm(vt)
+
+#         if normt == 0 or np.isnan(normt):
+#             dtheta_ref.append(np.nan)
+#             continue
+
+#         cosang = np.clip(np.dot(v_ref, vt), -1.0, 1.0)
+
+#         angle = np.arccos(cosang)
+
+#         dtheta_ref.append(np.degrees(angle)) 
+
+#     dtheta_ref = np.array(dtheta_ref)
 
 #     return {
-#         "times": inter[COL_TIME].values,
-
-#         "direction_vectors": v,
-
-#         "dtheta_ref": dtheta_ref,
-
+#         "times": inter[COL_TIME].values[1:],
+#         # "direction_vectors": v,
+#         # "dtheta": dtheta,
+#         "mean_dtheta": mean_dtheta,
+#         "max_dtheta": max_dtheta,
+#         "direction_stability": stability,
+#         # "omega": omega_series,
+#         "mean_omega": np.mean(np.array(omega_series)), # peut-être pas si utile
+#         "cum_dtheta": np.nansum(dtheta), # rotation/dérivation cumulative
+#         # "dtheta_ref": dtheta_ref,
 #         "mean_dtheta_ref": np.nanmean(dtheta_ref),
 #         "max_dtheta_ref": np.nanmax(dtheta_ref),
+#         "std_ref": np.nanstd(dtheta_ref),
 #         "cum_dtheta_ref": np.nansum(dtheta_ref),
+#         "stability": 1 / (1 + np.nanstd(dtheta_ref)) # division inversement proportionnelle avec écart-type
 
-#         "omega": omega,
-#         "mean_omega": np.nanmean(np.abs(omega)),
-#         "max_omega": np.nanmax(np.abs(omega)),
-
-#         "direction_stability": stability
 #     }
 
 
 
 def compute_spatial_deviation(df_agent, inter_start, inter_end):
     """
-    Déviation spatiale globale par rapport à la trajectoire inertielle.
-
-    Mesure distance des positions réelles à la ligne inertielle.
+    Global spatial deviation from the inertial trajectory.
+    Measures the distance between the actual positions and the inertial line.
     """
 
     df = df_agent.sort_values(COL_TIME).copy()
@@ -3348,7 +2876,7 @@ def compute_spatial_deviation(df_agent, inter_start, inter_end):
 
     pts = inter[["x_m", "y_m"]].values
 
-    # ligne inertielle (devrait être droite, si pas d'obstacle)
+    # ligne inertielle (devrait être droite, si pas d'obstacle) (et si courbée de base ?)
 
     p0 = pts[0]
     p1 = pts[-1]
@@ -3411,7 +2939,7 @@ def compute_spatial_deviation(df_agent, inter_start, inter_end):
     }
 
 
-# Fonction pour plot plusieurs 
+# Fonction pour plot plusieurs critères spatio-temporels en même temps
 def plot_interaction_series(
     series,
     title="Interaction metrics",
@@ -3422,11 +2950,12 @@ def plot_interaction_series(
     invert_y=False,
     figsize=(10, 5),
     grid=True,
+    vertical_lines=None
 ):
     """
     Affiche plusieurs séries temporelles synchronisées.
 
-    Parameters
+    Paramètres
     ----------
     series : list of dict
         Chaque élément décrit une courbe.
@@ -3452,19 +2981,48 @@ def plot_interaction_series(
     interaction_intervals : list[(t_start, t_end)], optional
         Intervalles d'interaction à mettre en évidence.
 
+    vertical_lines : list of dict, optional
+        Lignes verticales supplémentaires.
+
+        Exemple :
+        [
+            {
+                "x": 2.5,
+                "label": "Event",
+                "color": "red"
+            }
+        ]
+
+        Si aucune ligne n'est fournie et qu'une série "Distance"
+        et une série "Approach angle" sont présentes, la fonction
+        ajoute automatiquement une ligne au niveau de la distance
+        minimale.
+
     invert_y : bool
         Inverse l'axe Y gauche si nécessaire.
     """
-
     fig, ax_left = plt.subplots(figsize=figsize)
     ax_right = None
-
     handles = []
     labels = []
 
-    # ==========================================================
-    # Courbes
-    # ==========================================================
+    distance_times = None
+    distance_values = None
+
+    angle_times = None
+    angle_values = None
+
+    for s in series:
+
+        label = s.get("label", "")
+
+        if label.lower() == "distance":
+            distance_times = np.asarray(s["times"])
+            distance_values = np.asarray(s["values"])
+
+        elif label.lower() == "approach angle":
+            angle_times = np.asarray(s["times"])
+            angle_values = np.asarray(s["values"])
 
     for s in series:
 
@@ -3472,9 +3030,11 @@ def plot_interaction_series(
 
         if axis == "left":
             ax = ax_left
+
         else:
             if ax_right is None:
                 ax_right = ax_left.twinx()
+
             ax = ax_right
 
         line, = ax.plot(
@@ -3490,47 +3050,229 @@ def plot_interaction_series(
         handles.append(line)
         labels.append(s.get("label", ""))
 
-    # ==========================================================
-    # Zones d'interaction
-    # ==========================================================
+    min_distance = None
+    min_distance_time = None
+    angle_at_min_distance = None
+
+    if (
+        distance_times is not None
+        and distance_values is not None
+    ):
+
+        # Retirer les valeurs invalides
+        valid = (
+            np.isfinite(distance_times)
+            & np.isfinite(distance_values)
+        )
+
+        if np.any(valid):
+
+            valid_times = distance_times[valid]
+            valid_distances = distance_values[valid]
+
+            # Minimum de distance
+            min_idx = np.argmin(valid_distances)
+
+            min_distance = valid_distances[min_idx]
+            min_distance_time = valid_times[min_idx]
+            if (angle_times is not None and angle_values is not None):
+                valid_angle = (np.isfinite(angle_times) & np.isfinite(angle_values))
+                if np.any(valid_angle):
+                    angle_t = angle_times[valid_angle]
+                    angle_v = angle_values[valid_angle]
+
+                    # Cherche l'observation d'angle
+                    # temporellement la plus proche
+                    angle_idx = np.argmin(np.abs(angle_t - min_distance_time))
+                    angle_at_min_distance = angle_v[angle_idx]
 
     if interaction_intervals is not None:
-
         for start, end in interaction_intervals:
             ax_left.axvspan(
                 start,
                 end,
                 color="grey",
-                alpha=0.15,
+                alpha=0.12,
                 zorder=0
             )
 
-    # ==========================================================
-    # Axes
-    # ==========================================================
+    if min_distance_time is not None:
+        ax_left.axvline(
+            x=min_distance_time,
+            color="crimson",
+            linestyle="--",
+            linewidth=1.5,
+            alpha=0.8,
+            zorder=2
+        )
 
-    ax_left.set_title(title)
-    ax_left.set_xlabel(xlabel)
+        ax_left.scatter(
+            min_distance_time,
+            min_distance,
+            color="royalblue",
+            s=60,
+            edgecolor="white",
+            linewidth=1.3,
+            zorder=5
+        )
+
+        # Annotation distance
+        ax_left.annotate(
+            # f"$d_{{min}}$ = {min_distance:.2f} m",
+            f"{min_distance:.2f} m",
+            xy=(
+                min_distance_time,
+                min_distance
+            ),
+            xytext=(10, 12),
+            textcoords="offset points",
+            fontsize=12,
+            color="royalblue",
+            weight="bold",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor="white",
+                edgecolor="royalblue",
+                linewidth=1,
+                alpha=0.9
+            )
+        )
+
+        if (angle_at_min_distance is not None and ax_right is not None):
+            ax_right.scatter(
+                min_distance_time,
+                angle_at_min_distance,
+                color="darkorange",
+                s=60,
+                edgecolor="white",
+                linewidth=1.3,
+                zorder=5
+            )
+
+            # Annotation angle
+            ax_right.annotate(
+                # f"$\\theta$ = "
+                f"{angle_at_min_distance:.1f}°",
+                xy=(
+                    min_distance_time,
+                    angle_at_min_distance
+                ),
+                xytext=(10, -30),
+                textcoords="offset points",
+                fontsize=12,
+                color="darkorange",
+                weight="bold",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="white",
+                    edgecolor="darkorange",
+                    linewidth=1,
+                    alpha=0.9
+                )
+            )
+
+    ax_left.set_title(
+        title,
+        fontsize=15,
+        fontweight="bold",
+        pad=12
+    )
+
+    ax_left.set_xlabel(
+        xlabel,
+        fontsize=15
+    )
+
+    ax_left.tick_params(axis="both", labelsize=13)
 
     if ylabel_left is not None:
-        ax_left.set_ylabel(ylabel_left)
 
-    if ax_right is not None and ylabel_right is not None:
-        ax_right.set_ylabel(ylabel_right)
+        ax_left.set_ylabel(
+            ylabel_left,
+            fontsize=15
+        )
+
+    if (
+        ax_right is not None
+        and ylabel_right is not None
+    ):
+
+        ax_right.set_ylabel(
+            ylabel_right,
+            fontsize=15
+        )
+    ax_right.tick_params(axis="both", labelsize=13)
 
     if invert_y:
         ax_left.invert_yaxis()
 
     if grid:
-        ax_left.grid(alpha=0.3)
 
-    # ==========================================================
-    # Légende
-    # ==========================================================
+        ax_left.grid(
+            True,
+            which="major",
+            axis="both",
+            alpha=0.2,
+            linestyle="-",
+            linewidth=0.8
+        )
 
-    ax_left.legend(handles, labels)
+        ax_left.set_axisbelow(True)
 
-    plt.tight_layout()
+    if vertical_lines:
+
+        for line in vertical_lines:
+
+            x = line["x"]
+
+            ax_left.axvline(
+                x=x,
+                color=line.get(
+                    "color",
+                    "red"
+                ),
+                linestyle=line.get(
+                    "linestyle",
+                    "--"
+                ),
+                linewidth=line.get(
+                    "linewidth",
+                    1.3
+                ),
+                alpha=line.get(
+                    "alpha",
+                    0.7
+                )
+            )
+
+    if ax_right is not None:
+        legend = ax_right.legend(
+            handles,
+            labels,
+            loc="best",
+            frameon=True,
+            fancybox=True,
+            framealpha=1.0,
+            fontsize=12
+        )
+    else:
+        legend = ax_left.legend(
+            handles,
+            labels,
+            loc="best",
+            frameon=True,
+            fancybox=True,
+            framealpha=1.0,
+            fontsize=12
+        )
+
+    legend.set_zorder(1000)
+
+    ax_left.spines["top"].set_visible(False)
+    if ax_right is not None:
+        ax_right.spines["top"].set_visible(False)
+
+    fig.tight_layout()
     plt.show()
 
     return fig, ax_left, ax_right

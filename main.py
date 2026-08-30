@@ -7,18 +7,19 @@ from visualisation import *
 from filters import *
 from export_data import *
 from utils import *
+from validation import *
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Visualiseur de trajectoires sur image aérienne."
+        description="Visualizer of trajectories on an aerial image."
     )
 
     parser.add_argument(
         "--dataset",
         type=str,
         required=True,
-        help="Nom du dataset à utiliser"
+        help="Dataset name"
     )
 
     parser.add_argument(
@@ -26,14 +27,14 @@ def parse_args():
         type=str,
         choices=["single", "all"],
         default="all",
-        help="single = un seul fichier, all = tous les fichiers du dataset un à un"
+        help="single = a single file, all = all the files of a dataset one by one"
     )
 
     parser.add_argument(
         "--file",
         type=str,
         default=None,
-        help="Nom du fichier à visualiser (obligatoire si input-mode=single)"
+        help="Name of the file to visualize (only for input-mode=single)"
     )
 
     parser.add_argument(
@@ -41,28 +42,28 @@ def parse_args():
         type=str,
         required=True,
         choices=["static", "animated"],
-        help="Mode d'affichage : static ou animated" 
-        # static= toutes les trajectoires affichées
-        # animlated= trajectoires tracées en live (=vidéo)
+        help="Display mode : static ou animated" 
+        # static= all the trajectories are displayed on an image
+        # animlated= trajectories are displayed according to time (= video)
     )
 
     parser.add_argument(
         "--fps",
         type=int,
         default=DEFAULT_FPS,
-        help=f"FPS pour le mode animé (défaut: {DEFAULT_FPS})"
+        help=f"FPS for the animated mode (default: {DEFAULT_FPS})"
     )
 
     parser.add_argument(
         "--use-unique-timestamps",
         action="store_true",
-        help="En mode animé, utiliser uniquement les timestamps présents dans les données au lieu d'une interpolation régulière."
+        help="In animated mode, use only the timestamps present in the data instead of regular interpolation"
     )
 
     parser.add_argument(
         "--hide-ids",
         action="store_true",
-        help="Masquer les IDs des objets."
+        help="Hide the users IDs"
         # ID affichés par défaut
     )
 
@@ -70,7 +71,7 @@ def parse_args():
         "--highlight-id",
         type=int,
         default=None,
-        help="ID de l'agent à mettre en évidence"
+        help="Highlight the ID of a user"
     )
 
     parser.add_argument(
@@ -84,28 +85,28 @@ def parse_args():
         "--tail-length",
         type=int,
         default=None,
-        help="Longueur max de la trace passée en mode animé (par défaut: toute la trajectoire)."
+        help="Maximum length of the past trajectory displayed in animated mode (default: the entire trajectory)."
     )
 
     parser.add_argument(
         "--speed",
         type=float,
         default=None,
-        help="Facteur d'accélération temporelle pour le mode animé."
+        help="Temporal acceleration factor for animated mode"
     )
 
     parser.add_argument(
         "--frame-step",
         type=int,
         default=1,
-        help="Nombre de frames à sauter en mode animé (défaut: 1). Exemple: 3 = une frame affichée sur 3."
+        help="Number of frames to skip in animated mode (default: 1). Ex: 3 = display one frame out of every 3"
     )
 
     parser.add_argument(
         "--save-video",
         type=str,
         default=None,
-        help="Chemin de sortie pour enregistrer l'animation en vidéo, par ex. output.mp4"
+        help="Output path for saving the animation as a video (.gif or .mp4)"
         # mettre plus tard un dossier output avec toutes les vidéos sauvegardées dedans automatiquement
     )
 
@@ -115,7 +116,7 @@ def parse_args():
         type=str,
         choices=["cyclists", "pedestrians", "both"],
         default="cyclists",
-        help="Type d'agents VRU"
+        help="Road user type (for VRU dataset)"
     )
 
     parser.add_argument(
@@ -123,21 +124,20 @@ def parse_args():
         type=str,
         choices=["starting", "moving", "stopping", "waiting", "all"],
         default="starting",
-        help="Type de comportement VRU"
+        help="Behavior type (for VRU dataset)"
     )
 
     parser.add_argument(
         "--no-smoothing-kalman",
         action="store_true",
-        help="Désactiver le lissage avec filtre de Kalman"
-        # Filtre activé par défaut pour CTV
+        help="Deactivate kalman fiter for CTV dataset (deafult: activated)"
     )
 
     parser.add_argument(
         "--scene",
         type=str,
         default=None,
-        help="Nom de la scène (ex: bookstore, nexus, quad...)"
+        help="Name of the scene for SDD dataset (ex: bookstore, nexus, quad...)"
         # pour Stanford dataset
     )
 
@@ -145,16 +145,91 @@ def parse_args():
         "--video",
         type=str,
         default=None,
-        help="Nom de la vidéo (ex: video0, video1...)"
+        help="Name of the video for SDD dataset (ex: video0, video1...)"
         # pour Stanford dataset
+    )
+
+    parser.add_argument(
+        "--print-interactions",
+        action="store_true",
+        help="Print all classified interactions of one video (in single mode only)"
+    )
+
+    parser.add_argument(
+        "--analyze-interaction",
+        action="store_true",
+        help="Interaction ID to analyze spatio-temporal metrics of a detected and classified interaction (in single mode only)"
+    )
+
+    parser.add_argument(
+        "--export-interactions",
+        action="store_true",
+        help="Export detected and classifiedinteractions of one or several videos in a CSV file"
     )
 
     return parser.parse_args()
 
 
 
+def print_interactions_summary(df, history_hc, interactions, fps):
+
+    classified_interactions = []
+
+    print("Detected and classified interactions : ")
+
+    if not interactions:
+        print("No interaction detected.")
+        return classified_interactions
+
+    for i, interaction in enumerate(interactions):
+
+        # Classification
+        res_class = classify_one_interaction(df, history_hc, interaction, fps)
+
+        # Interaction ID
+        interaction_id = interaction.get("interaction_id", i)
+
+        # Label
+        interaction_label = res_class["label"].get("interaction_type", "unnkown")
+
+        # IDs of roas users involved in the interaction
+        ped_ids = [int(x) for x in interaction.get("ids_ped", [])]
+        cyc_ids = [int(x) for x in interaction.get("ids_cyc", [])]
+
+        # Type of users (cluster, noise=individual)
+        ped_type = ("ped_cluster" if len(ped_ids) > 1 else "ped_noise")
+
+        cyc_type = ("cyc_cluster" if len(cyc_ids) > 1 else "cyc_noise")
+
+        result = {
+            "interaction_id": interaction_id,
+            "interaction_label": interaction_label,
+            "ped_type": ped_type,
+            "ped_ids": ped_ids,
+            "cyc_type": cyc_type,
+            "cyc_ids": cyc_ids,
+            "interaction": interaction,
+            "classification": res_class
+        }
+
+        classified_interactions.append(result)
+
+        print(
+            f"{interaction_id} | "
+            f"{interaction_label} | "
+            f"{ped_type} {ped_ids} | "
+            f"{cyc_type} {cyc_ids}"
+        )
+
+
+    return classified_interactions
+
+
+
 def main():
     args = parse_args()
+
+    # classification_validation("test_ctv/manual_annotated_inter.csv", "res_validation")
 
     cfg = DATASETS[args.dataset]
     folder = cfg["folder"]
@@ -164,25 +239,21 @@ def main():
         df = prepare_data(df, no_cars=args.no_cars)
         run_visualization(df, image_path, cfg, args)
         return
-    
-    if args.dataset == "stanford2":
-        df, image_path, cfg = load_dataset(args.dataset, None, args)
-        df = prepare_data(df, no_cars=args.no_cars)
-        # _, _ = analyze_initial_nb_traj_interactions(df)
-        # df, _ = filter_coexisting_with_cars(df)
-        df, _ = filter_interactions_with_close_cars(df)
-        run_visualization(df, image_path, cfg, args)
-        return
+
+    # compute_binary_interaction_statistics("test_ctv/final_inter_sdd.csv", True, "stats_sdd_binary_final")
+    # compute_group_interaction_statistics("test_ctv/final_inter_sdd.csv", True, "stats_sdd_group_final")
 
     #################################
     # MODE SINGLE
     #################################
     if args.input_mode == "single":
-        if args.file is None:
+        if args.dataset != "sdd" and args.file is None:
             raise ValueError("Tu dois spécifier --file en mode single")
 
         if args.dataset == "ind":
             df, image_path, cfg = load_dataset(args.dataset, args.file)
+        elif args.dataset == "sdd":
+                df, image_path, cfg = load_dataset(args.dataset, None, args)
         else:
             file_path = os.path.join(folder, args.file)
             df, image_path, cfg = load_dataset(args.dataset, file_path) # on garde les voitures au début, le filtrage se fait après
@@ -191,106 +262,65 @@ def main():
         # df, image_path, cfg = load_dataset(args.dataset, file_path)
         df = prepare_data(df, no_cars=args.no_cars) # à retirer car inutile grâce au filtrage
         _, _ = analyze_initial_nb_traj_interactions(df) # ajouter arg flag pour l'analyse
-
-        # compute_interaction_statistics("all_interactions_ctv.csv", False)
-        # compute_interaction_statistics_bis("all_interactions_ctv.csv")
-        # compute_interaction_statistics_final("all_interactions_ctv.csv", True, "ctv_stats_all")
+       
 
         if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
-            # analyse du filtre de Kalman
+            # Kalman filter analysis
+            # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[1,14])
             # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
             # compare_kalman_R_two_agents(df, R_values)
-            # print("\nRaw data")
-            # analyze_speeds(df, cfg)
-            # print("\navant filtre")
+            # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[1,14])
             # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
             # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
             # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
             # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_josue", suffix="filtered_23111")
             # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
-            # print(df)
-            # print("\naprès filtre")
-            # distances = analyze_cycl_ped_distances(df)
-            # print("\nFiltred data")
-
-            # times, vrel, vrel_kmh, angles = compute_relative_motion(ped, cyc, cfg["fps"], plot=True)
-            # plot_velocity_vectors_over_time(df, 1, cfg["fps"], step=20)
-            # compute_agent_direction(df, 1, "angle", "deg", plot = True)
-
-            # g = df[df[COL_ID] == 9].sort_values(COL_TIME)
-            # compute_velocity_vectors(g, cfg["fps"], plot=True)
-            # t, a, c_da = compute_direction_angle_velocity_based(df, 2, 9, cfg["fps"], plot=True, return_class=True)
-            # print("\nDirection angle : ", c_da)
-            # t, a, c_aa = compute_approach_angle(df, 2, 9, cfg["fps"], plot=True, return_class=True)
-            # print("\nApproach angle : ", c_aa)
-            # times, rel_speeds, rel_speeds_kmh, angles, distances, c_v = compute_relative_speed(df, 2, 9, cfg["fps"], plot=True, return_class=True)
-            # print("\nRelative speed : ", c_v)
-            # pet = compute_pet(df, 2, 9, cfg["fps"], plot=True, return_class=True)
-            # print("\nPET : ", pet)
-            # times, ttc_val, ttc_min, c_ttc = compute_ttc(df, 2, 9, cfg["fps"], plot=True, return_class=True)    
-            # print("\n TTC : ", ttc_min, c_ttc)
-            # res = classify_pair_interaction(pet, (ttc_min, c_ttc), c_aa, c_da, c_v)
-            # print("\nFinal results : ", res)
-            # i_fps, i_sec, duree_sec = compute_interaction_intervals(df, 2, 9, cfg["fps"])
-            # print("Intervalle interaction :", i_fps, i_sec, duree_sec)
-            # _, _, _, c_dist = compute_distance_ped_cyc(df, 2, 9, cfg["fps"], plot=True, return_class=True)
-            # print("\nDist classification : ", c_dist)
-
-            
-            history_hc = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
-
-            # r_splits = detect_split_events_with_cyclists(history_hc)
-            # print("\nSpliting de clusters : ", r_splits)
-            # r_insertion = detect_cyclists_in_hulls(history_hc)
-            # print("\nDétection faufilement : ", r_insertion)
-
-            # inter_clusters = detect_cluster_interactions(history_hc, df)
-            # # print("\nInteractions clusters ", inter_clusters)
-            interactions = build_interaction_events(history_hc, fps=cfg["fps"])
-            # print("\n INTERACTIONS ", interactions)
-            res_inter = compute_one_interaction_features(df, history_hc, interactions[12], fps=cfg["fps"], plot=True)
-            # print("\n Interaction 17 : ", interactions[17])
-            # print("\n Interaction 3 : ", interactions[3])
-            # print("\n FEATURES INTERACTION", res_inter)
-            res_class = classify_one_interaction(df, history_hc, interactions[12], cfg["fps"])
-            print("\n CLASSIFICATION : ", res_class["label"])
-            ped_id = interactions[12]["ids_ped"]
-            df_ped = df[df[COL_ID].isin(ped_id)]
-            cyc_id = interactions[12]["ids_cyc"]
-            df_cyc = df[df[COL_ID].isin(cyc_id)]
-            # print("\nVitesse cyc", compute_speed_variation_no_ref(df_cyc, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            # print("\nVitesse ped", compute_speed_variation_no_ref(df_ped, interactions[15]["start"], interactions[15]["end"], cfg["fps"]))
-            # # print("\nDirectionnel ped", compute_direction_variation(df_ped, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            # # print("\nDirectionnel cyc", compute_direction_variation(df_cyc, interactions[14]["start"], interactions[14]["end"], cfg["fps"]))
-            # print("\nSpatial ped", compute_spatial_deviation(df_ped, interactions[15]["start"], interactions[15]["end"]))
-            # print("\nSpatial cyc", compute_spatial_deviation(df_cyc, interactions[15]["start"], interactions[15]["end"]))
-            # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[2,9])
-            # compute_distance_ped_cyc(df, 2, 9, cfg["fps"], plot=True)
-            # compute_cluster_distances_tracked(history_hc, fps=cfg["fps"], plot=True)
-            # export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path="interactions_front_gp9.csv")
-
 
         if cfg.get("has_cars", False):
 
             # distances = analyze_car_vru_distances(df)
             if args.dataset == "ind":
-                # df, bad_ids = filter_spatial_car_influence(df, distance_threshold=5.0, ind = True)
                 df, bad_ids = filter_interactions_with_close_cars(df, ind = True)
-                # print(bad_ids)
-                # analyze_speeds(df, cfg)
-                # distances = analyze_car_vru_distances(df)
                 # export_filtered_ind_recording(args.file, bad_ids, cfg)
-            elif args.dataset == "noname":
-                df, _ = filter_coexisting_with_cars(df)
-                # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
-                # history = compute_clusters_and_hulls_over_time(df, plot=True, fps=cfg["fps"])
-                # interactions = build_interaction_events(history, fps=cfg["fps"])
-                # export_interactions_to_csv(df, history, interactions, fps=cfg["fps"], output_path="inter_tssD1.csv")
 
+            elif args.dataset == "tss":
+                df, _ = filter_coexisting_with_cars(df)
                 # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "TSS_filtered")
                 # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_flowchain")
                 # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ind_filt", file_format="txt")
+
+            elif args.dataset == "sdd":
+                df, _ = filter_interactions_with_close_cars(df)
+
+        if args.print_interactions or args.analyze_interaction or args.export_interactions:
+            history_hc = compute_clusters_and_hulls_over_time(df, plot=False, fps=cfg["fps"]) # to see DBSCAN + convex hulls frame per frame, write plot=True
+            interactions = build_interaction_events(history_hc, fps=cfg["fps"])
+            print_interactions_summary(df, history_hc, interactions, cfg["fps"])
+
+            if args.analyze_interaction:
+                if not interactions:
+                    print("No interaction to analyze.")
+                else:
+                    try:
+                        interaction_id = int(input("\n Enter the interaction ID to analyze : "))
+                    except ValueError:
+                        print("ID not valid.")
+                        return
+                    if interaction_id < 0 or interaction_id >= len(interactions):
+                        print("No interaction with ID ", interaction_id)
+                        return
+
+                    print("\nAnalysis of the interaction ", interaction_id)
+                    res_inter = compute_one_interaction_features(df, history_hc, interactions[interaction_id], fps=cfg["fps"], plot=True)
+
+            if args.export_interactions:
+                if not interactions:
+                    print("No interactions to export.")
+                else:
+                    output_path = f"{os.path.splitext(args.file)[0]}_interactions.csv"
+                export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path=output_path)
+
 
         run_visualization(df, image_path, cfg, args)
 
@@ -304,12 +334,40 @@ def main():
         all_interaction_dfs = []
         id_offset = 0
         frame_offset = 0
-        pattern = cfg.get("file_pattern", "*.csv")
-        if "files" in cfg:
-            files = [os.path.join(folder, f) for f in cfg["files"]]
+
+        # Statistiques globales CTV
+        total_initial_traj = 0
+        total_initial_interactions = 0
+
+        total_filtered_traj = 0
+        total_filtered_interactions = 0
+
+        total_dbscan_interactions = 0
+
+        if args.dataset == "sdd":
+            videos = []
+            for scene in sorted(os.listdir(folder)):
+                scene_path = os.path.join(folder, scene)
+                if not os.path.isdir(scene_path):
+                    continue
+    
+                for video in sorted(os.listdir(scene_path)):
+                    video_path = os.path.join(scene_path, video)
+                    if not os.path.isdir(video_path):
+                        continue
+    
+                    ann_file = os.path.join(video_path, "annotations.txt")
+                    if os.path.exists(ann_file):
+                        videos.append((scene, video))
+            files = videos
+
         else:
             pattern = cfg.get("file_pattern", "*.csv")
-            files = glob.glob(os.path.join(folder, pattern))
+            if "files" in cfg:
+                files = [os.path.join(folder, f) for f in cfg["files"]]
+            else:
+                pattern = cfg.get("file_pattern", "*.csv")
+                files = glob.glob(os.path.join(folder, pattern))
 
         if not files:
             raise FileNotFoundError(f"Aucun CSV trouvé dans {folder}")
@@ -317,21 +375,38 @@ def main():
         # split_txt_by_trajectory("flowchain_data/ctv_new/ctv_Pedestrian.txt", "flowchain_data/ctv_new")
         # split_txt_by_trajectory("flowchain_data/ctv_new/ctv_Cyclist.txt", "flowchain_data/ctv_new")
 
+        # global_speeds = []
+        # global_accelerations = []
+        # total_cyclists = 0
+
+        original_dfs = {}
         try:
             for f in files:
-                print(f"\nLecture de {os.path.basename(f)}")
+                # print(f"\nLecture de {os.path.basename(f)}")
 
                 if args.dataset == "ind":
                     recording_id = os.path.basename(f).split("_")[0]
 
                     df, image_path, cfg = load_dataset(args.dataset, recording_id)
+                    print(f"\nLecture de {os.path.basename(f)}")
+
+                elif args.dataset == "sdd":
+                    scene, video = f
+                    args.scene = scene
+                    args.video = video
+                    df, image_path, cfg = load_dataset(args.dataset, None, args)
+                    print(f"\nLecture {scene}/{video}")
 
                 else:
                     df, image_path, cfg = load_dataset(args.dataset, f)
+                    print(f"\nLecture de {os.path.basename(f)}")
 
                 df = prepare_data(df, no_cars=args.no_cars)
                 # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
-                # _, _ = analyze_initial_nb_traj_interactions(df)
+
+                initial_nb_traj, initial_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+                total_initial_traj += initial_nb_traj
+                total_initial_interactions += initial_nb_interactions
 
                 # filtrage
                 if not args.no_smoothing_kalman and args.dataset.startswith("ctv"):
@@ -340,33 +415,91 @@ def main():
                     # export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/ctv_filt")
                     # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
                     
+                    filtered_nb_traj, filtered_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+                    total_filtered_traj += filtered_nb_traj
+                    total_filtered_interactions += filtered_nb_interactions
+                    print(
+                        f"Après Kalman : "
+                        f"{total_filtered_traj} trajectoires, "
+                        f"{total_filtered_interactions} interactions"
+                    )
+                    
                 if cfg.get("has_cars", False):
                     if args.dataset == "ind":
                         df, _ = filter_interactions_with_close_cars(df, ind = True)
+                        filtered_nb_traj, filtered_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+                        total_filtered_traj += filtered_nb_traj
+                        total_filtered_interactions += filtered_nb_interactions
+                        print(
+                            f"Après filtrage : "
+                            f"{filtered_nb_traj} trajectoires, "
+                            f"{filtered_nb_interactions} interactions"
+                        )
 
-                    elif args.dataset == "noname":
+
+                    elif args.dataset == "tss":
                         df, _ = filter_coexisting_with_cars(df)
                         # export_filtered_data_original(df, args.dataset, cfg["folder"], os.path.basename(f), "TSS_filtered")
                         # export_filtered_data(df, args.dataset, os.path.basename(f), "data_filtered/noname_filt")
                         # export_dataset_by_class(df, args.dataset, args.file, "data_filtered/ctv_flowchain", file_format="txt")
                         # split_txt_by_trajectory("flowchain_data/tss/noname_Pedestrian.txt", "flowchain_data/tss")
-                
+                        
+                        filtered_nb_traj, filtered_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+                        total_filtered_traj += filtered_nb_traj
+                        total_filtered_interactions += filtered_nb_interactions
+                        print(
+                            f"Après filtrage : "
+                            f"{filtered_nb_traj} trajectoires, "
+                            f"{filtered_nb_interactions} interactions"
+                        )
+
+                    elif args.dataset == "sdd":
+                        df, _ = filter_interactions_with_close_cars(df)
+                        filtered_nb_traj, filtered_nb_interactions = analyze_initial_nb_traj_interactions(df, verbose=False)
+                        total_filtered_traj += filtered_nb_traj
+                        total_filtered_interactions += filtered_nb_interactions
+                        print(
+                            f"Après filtrage : "
+                            f"{filtered_nb_traj} trajectoires, "
+                            f"{filtered_nb_interactions} interactions"
+                        )
+
                 # df[COL_ID] += id_offset
                 # df[COL_TIME] += frame_offset
                 # all_dfs.append(df)
-                history_hc = compute_clusters_and_hulls_over_time(df, fps=cfg["fps"])
-                interactions = build_interaction_events(history_hc, fps=cfg["fps"])
-                df_inter = export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path=None)
-                df_inter["recording"] = os.path.basename(f)
-                all_interaction_dfs.append(df_inter)
 
-                # all_histories.update(history_hc)
-                # all_interactions.extend(interactions)
-                # id_offset = df[COL_ID].max() + 1
-                # frame_offset = df[COL_TIME].max() + 1
+                if args.dataset == "sdd":
+                    recording_name = f"{scene}_{video}"
+                else:
+                    recording_name = os.path.basename(f)
+                original_dfs[recording_name] = df.copy()
+
+                # POUR LES ALL CTV STATS
+                if args.export_interactions:
+                    history_hc = compute_clusters_and_hulls_over_time(df, fps=cfg["fps"])
+                    interactions = build_interaction_events(history_hc, fps=cfg["fps"])
+                    df_inter = export_interactions_to_csv(df, history_hc, interactions, fps=cfg["fps"], output_path=None)
+                    if args.dataset == "sdd":
+                        df_inter["recording"] = f"{scene}_{video}"
+                    else:
+                        df_inter["recording"] = os.path.basename(f)
+                    all_interaction_dfs.append(df_inter)
+                    total_dbscan_interactions += len(interactions)
+                    print(f"Interactions detected with DBSCAN : {len(interactions)}")
+
+                    all_histories.update(history_hc)
+                    all_interactions.extend(interactions)
+                    # id_offset = df[COL_ID].max() + 1
+                    # frame_offset = df[COL_TIME].max() + 1
+
+                # speeds, accs, n_cyclists = collect_cyclist_statistics(df, cfg["fps"])
+                # global_speeds.extend(speeds)
+                # global_accelerations.extend(accs)
+                # total_cyclists += n_cyclists
 
                 # run_visualization(df, image_path, cfg, args)
             
+            # FOR DATA FORMAT FOR FLOWCHAIN
             # if all_dfs:
             #     # print(f"id offset = {id_offset}, frame offset = {frame_offset}")
             #     final_df = pd.concat(all_dfs, ignore_index=True)
@@ -377,23 +510,52 @@ def main():
             #     # split_txt_by_trajectory("flowchain_data/ind_new/ind_filtered_Pedestrian.txt", "flowchain_data/ind_new")
             #     # split_txt_by_trajectory("flowchain_data/ind_new/ind_filtered_Cyclist.txt", "flowchain_data/ind_new")
 
-            if all_interaction_dfs:
-                final_csv = pd.concat(all_interaction_dfs, ignore_index=True)
-                # renumérotation globale des interactions
-                # final_csv["interaction_id"] = range(len(final_csv))
-                final_csv.to_csv("final_interactions1.csv", index=False)
-                print(f"{len(final_csv)} interactions exportées.")
+            if args.export_interactions:
+                if all_interaction_dfs:
+                    final_csv = pd.concat(all_interaction_dfs, ignore_index=True)
+                    # renumérotation globale des interactions
+                    # final_csv["interaction_id"] = range(len(final_csv))
+                    output_path = f"{args.dataset}_interactions.csv"
+                    final_csv.to_csv(output_path, index=False)
+                    print(f"{len(final_csv)} interactions exported.")
+
+
+                # Numbers of trajectories, interactions, pedestrians, cyclistes, etc
+                removed_interactions = (total_initial_interactions - total_filtered_interactions)
+                removed_traj = (total_initial_traj - total_filtered_traj)
+                print("Global summary:")
+                print(f"Trajectories before filtering : {total_initial_traj}")
+                print(f"Trajectories after filtering : {total_filtered_traj}")
+                print("Suppressed trajectories : "
+                    f"{removed_traj} "
+                    f"({removed_traj / total_initial_traj * 100:.2f}%)"
+                    if total_initial_traj > 0 else
+                    "Suppressed trajectories : 0"
+                )
+
+                print(f"\nInteractions before filtering : {total_initial_interactions}")
+                print(f"Interactions after filtering : {total_filtered_interactions}")
+                if total_initial_interactions > 0:
+                    print("Suppressed interactions : "
+                        f"{removed_interactions} "
+                        f"({removed_interactions / total_initial_interactions * 100:.2f}%)"
+                    )
+
+                print(f"\nInteractions dectected with DBSCAN : {total_dbscan_interactions}")
+
+
+            # global_speeds = np.asarray(global_speeds)
+            # global_accelerations = np.asarray(global_accelerations)
+            # print_cyclist_statistics(global_speeds, global_accelerations, total_cyclists)
+            # plot_cyclist_speed_histogram(global_speeds, total_cyclists)
+
+            # plot_binary_distance_approach_evolution("test_ctv/final_inter_ctv.csv",  original_dfs, cfg["fps"], n_points=100)
 
         except KeyboardInterrupt:
-            print("\nArrêt demandé par l'utilisateur. Fin du programme.")
+            print("\nEnd of the program by user.")
 
 
 def run_visualization(df, image_path, cfg, args):
-    # if args.speed is not None:
-    #     speed = args.speed
-    # else:
-    #     speed = cfg.get("recommended_speed", 1.0)
-
     if args.use_unique_timestamps:
         speed = 1.0  # temps réel strict (pour ne pas appliquer recommended_speed quand cet arg est utilisé)
     else:
@@ -403,12 +565,7 @@ def run_visualization(df, image_path, cfg, args):
             speed = cfg.get("recommended_speed", 1.0)
 
     if args.mode == "static":
-        plot_static_trajectories(
-            df,
-            image_path,
-            cfg,
-            show_ids=not args.hide_ids
-        )
+        plot_static_trajectories(df, image_path, cfg, show_ids=not args.hide_ids)
 
     elif args.mode == "animated":
         animate_trajectories(

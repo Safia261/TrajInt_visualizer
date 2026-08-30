@@ -20,21 +20,21 @@ def prepare_data(df, no_cars=False):
 
 def load_dataset(dataset_name, file_path, args=None):
     if dataset_name not in DATASETS:
-        raise ValueError(f"Dataset inconnu : {dataset_name}")
+        raise ValueError(f"Dataset not known : {dataset_name}")
 
     cfg = DATASETS[dataset_name]
 
-    if cfg["type"] == "vru": # mettre dataset_name == vru plutôt ??
+    if cfg["type"] == "vru":
         return load_vru_dataset(cfg, args.vru_type, args.vru_behavior)
     
-    if dataset_name == "stanford2":
-        return load_stanford2_dataset(cfg, args.scene, args.video)
+    if dataset_name == "sdd":
+        return load_sdd_dataset(cfg, args.scene, args.video)
     
     if cfg["type"] == "ind":
         return load_ind_dataset(cfg, file_path)
 
     if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"Fichier introuvable : {file_path}")
+        raise FileNotFoundError(f"Impossible to find the file : {file_path}")
 
     # Load
     if cfg["type"] == "csv":
@@ -44,7 +44,7 @@ def load_dataset(dataset_name, file_path, args=None):
         df = pd.read_pickle(file_path)
 
     else:
-        raise ValueError(f"Type non supporté : {cfg['type']}")
+        raise ValueError(f"Unsupported type : {cfg['type']}")
     df["__file__"] = os.path.basename(file_path)
 
     # Normalisation des colonnes
@@ -88,25 +88,25 @@ def load_dataset(dataset_name, file_path, args=None):
 
 
 
-def load_stanford2_dataset(cfg, scene=None, video=None):
+def load_sdd_dataset(cfg, scene=None, video=None):
     root = cfg["folder"]
 
-    # Vérifier scène
+    # Verify scene
     if scene is None:
         scenes = os.listdir(root)
         scene = scenes[0]  # fallback
-        print(f"[INFO] Scene par défaut : {scene}")
+        print(f"Scene by default : {scene}")
 
     scene_path = os.path.join(root, scene)
 
     if not os.path.isdir(scene_path):
-        raise ValueError(f"Scene invalide : {scene}")
+        raise ValueError(f"Invalid scene : {scene}")
 
-    # Vérifier vidéo
+    # Verify video
     if video is None:
         videos = os.listdir(scene_path)
         video = videos[0]
-        print(f"[INFO] Video par défaut : {video}")
+        print(f"Video by default : {video}")
 
     video_path = os.path.join(scene_path, video)
 
@@ -114,7 +114,7 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
     ref_img = os.path.join(video_path, "reference.jpg")
 
     if not os.path.exists(ann_file):
-        raise FileNotFoundError(f"annotations.txt introuvable dans {video_path}")
+        raise FileNotFoundError(f"annotations.txt not found in {video_path}")
 
     # Load
     df = pd.read_csv(ann_file, sep=" ", header=None)
@@ -127,20 +127,20 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
         "label"
     ]
 
-    # filtre
+    # Filter
     df = df[df["lost"] == 0]
 
     # conversion bbox -> centroid
     df["x_m"] = (df["xmin"] + df["xmax"]) / 2
     df["y_m"] = (df["ymin"] + df["ymax"]) / 2
 
-    # normalisation
+    # normalization
     df = df.rename(columns={
         "track_id": COL_ID,
         "frame": COL_TIME
     })
 
-    # classification des usagers
+    # classification of road users
     def map_class(label):
         label = str(label).replace('"', '')
 
@@ -169,13 +169,13 @@ def load_stanford2_dataset(cfg, scene=None, video=None):
 def load_vru_dataset(cfg, vru_type, vru_behavior):
     base_folder = cfg["folder"]
 
-    # Choix des types
+    # Choice of types
     if vru_type == "both":
         types = ["pedestrians", "cyclists"]
     else:
         types = [vru_type]
 
-    # ordre des comportements (important pour avoir une logique des trajectoires et peut être changé ici)
+    # Behavior order (important for maintaining trajectory consistency; can be changed here)
     behavior_order = ["starting", "moving", "stopping", "waiting"]
 
     if vru_behavior == "all":
@@ -184,7 +184,7 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
         behaviors = [vru_behavior]
 
     all_data = []
-    time_offset = 0  # pour enchaîner les comportements
+    time_offset = 0  # to chain behaviors
 
     for b in behavior_order:
         if b not in behaviors:
@@ -210,7 +210,7 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
                 # print(filename)
                 df[COL_ID] = int(filename)
 
-                # classe
+                # class
                 if t == "pedestrians":
                     df[COL_CLASS] = 1
                 else:
@@ -222,17 +222,17 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
 
                 block_data.append(df)
 
-        # si aucun fichier dans ce behavior
+        # if no file is available for this behavior
         if not block_data:
             continue
 
         block_df = pd.concat(block_data, ignore_index=True)
 
-        # normalisation temporelle du bloc
+        # temporal normalization of the block
         t_min = block_df[COL_TIME].min()
         block_df[COL_TIME] = block_df[COL_TIME] - t_min
 
-        # décalage pour enchaîner les blocs
+        # offset for chaining blocks
         block_df[COL_TIME] += time_offset
 
         # update offset
@@ -241,9 +241,9 @@ def load_vru_dataset(cfg, vru_type, vru_behavior):
 
         all_data.append(block_df)
 
-    # concaténation finale
+    # final concatenation
     if not all_data:
-        raise ValueError("Aucune donnée VRU chargée")
+        raise ValueError("No VRU data loaded")
 
     df_all = pd.concat(all_data, ignore_index=True)
 
@@ -269,12 +269,12 @@ def map_ind_class(label):
 def load_ind_dataset(cfg, recording_id):
     folder = cfg["folder"]
 
-    # récupérer recordingId depuis filename
+    # retrieve recordingId from the filename
     recording_id = str(recording_id).zfill(2)
     # filename = os.path.basename(file_path) # à changer pour n'entrer que l'ID du recording à la place
     # recording_id = filename.split("_")[0]
 
-    # chemins fichiers
+    # file paths
     tracks_file = os.path.join(folder, f"{recording_id}_tracks.csv")
     meta_file = os.path.join(folder, f"{recording_id}_tracksMeta.csv")
 
@@ -321,7 +321,7 @@ def load_ind_dataset(cfg, recording_id):
     df["__file__"] = recording_id
 
     # Image
-    # que 2 images ont été conservées (une par intersection) pour réduire la taille des dossiers
+    # only two images were retained (one per intersection) to reduce the size of the folder
     rid = int(recording_id)
     image_path = None
     if 0 <= rid <= 6:
@@ -338,8 +338,8 @@ def load_ind_dataset(cfg, recording_id):
 
 def resample_dataset(df, fps, target_dt=0.4):
     """
-    Ré-échantillonne les trajectoires avec un pas temporel fixe. Prépare les données pour FlowChain.
-    
+    Resamples trajectories at a fixed time step. Prepares the data for FlowChain.
+
     ex:
     fps=2 -> dt=0.5 s
     target_dt=0.4 s -> fps=2.5
@@ -359,33 +359,17 @@ def resample_dataset(df, fps, target_dt=0.4):
         if len(g) < 2:
             continue
 
-        # frames = g[COL_TIME].values
-
-        # times = frames / fps # en secondes !
-
-        # if len(times) < 2:
-        #     continue
-
-        # t_min = times.min()
-        # t_max = times.max()
-
-        # bornes temporelles de l'agent (en secondes !)
+        # agent's temporal bounds (in seconds!)
         agent_t_min = g[COL_TIME].min() / fps
         agent_t_max = g[COL_TIME].max() / fps
 
-        # nouvelle grille temporelle (à corriger pour avoir des frames entières)
-        # target_dt_frames = target_dt * fps
-        # print(target_dt_frames)
-        # new_times = np.arange(t_min, t_max+target_dt, target_dt) # EN SECONDES !
-
-        # for t in new_times:
         for frame_id, t in enumerate(global_times):
             
-             # vérifier si l'agent n'existe pas encore ou n'existe plus
+             # check whether the agent does not exist yet or no longer exists
             if t < agent_t_min or t > agent_t_max:
                 continue
 
-            # temps exprimé dans l'ancien système de frames (nécessaire pour l'interpolation)
+            # time expressed in the original frame-based system (necessary for interpolation)
             t_old_frame = t * fps
 
             pos = interpolate_agent_at_time(g, t_old_frame)

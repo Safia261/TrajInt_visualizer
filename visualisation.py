@@ -19,7 +19,7 @@ def load_background_image(image_path, cfg):
         if "meters_to_pixels" in cfg:
             meters_per_pixel = 1.0 / cfg["meters_to_pixels"]
         else:
-            meters_per_pixel = 1.0 # coordonnées déjà en mètres
+            meters_per_pixel = 1.0 # coordinates in meters
 
     img_w_m = w * meters_per_pixel
     img_h_m = h * meters_per_pixel
@@ -61,7 +61,7 @@ def add_legend(ax, df):
 
 
 def add_mouse_coordinates(fig, ax):
-    # Pour afficher les coordonnées de la souris sur le plan cartésien
+    # To display the mouse coordinates on the cartesian plane
     coord_text = ax.text(
         0.01, 0.99, "",
         transform=ax.transAxes,
@@ -80,7 +80,7 @@ def add_mouse_coordinates(fig, ax):
 
 
 # ============================================================
-# MODE 1 : AFFICHAGE STATIQUE (image avec toutes le strajectoires affichées en même temps)
+# MODE 1 : STATIC DISPLAY (image with all trajectories displayed simultaneously)
 # ============================================================
 
 def plot_static_trajectories(df, image_path, cfg, show_ids=True):
@@ -138,7 +138,7 @@ def plot_static_trajectories(df, image_path, cfg, show_ids=True):
 
 
 # ============================================================
-# MODE 2 : AFFICHAGE ANIME
+# MODE 2 : ANIMATED DISPLAY
 # ============================================================
 def build_time_grid(df, dataset_fps, use_unique_timestamps, speed=1.0):
     times = np.sort(df[COL_TIME].unique())
@@ -152,7 +152,7 @@ def build_time_grid(df, dataset_fps, use_unique_timestamps, speed=1.0):
     t_min = df[COL_TIME].min()
     t_max = df[COL_TIME].max()
 
-    # plus speed est grand, plus on avance vite dans le temps simulé
+    # The higher the speed, the faster the simulated time advances
     dt = speed / dataset_fps
     return np.arange(t_min, t_max + dt, dt)
 
@@ -162,7 +162,7 @@ def interpolate_agent_at_time(agent_df, t):
     xs = agent_df["x_m"].values
     ys = agent_df["y_m"].values
     # behaviors = agent_df["behavior"].values 
-    has_behavior = "behavior" in agent_df.columns # pour le dataset VRU
+    has_behavior = "behavior" in agent_df.columns # for VRU dataset
 
     if has_behavior:
         behaviors = agent_df["behavior"].values
@@ -188,7 +188,7 @@ def interpolate_agent_at_time(agent_df, t):
         if behaviors[idx_left] != behaviors[idx_right]:
             return None
 
-    # interpolation linéaire simple (hyp: ligne droite entre 2 points connus)
+    # Simple linear interpolation (assuming a straight line between two known points)
     alpha = (t - t0) / (t1 - t0)
     x = x0 + alpha * (x1 - x0)
     y = y0 + alpha * (y1 - y0)
@@ -340,24 +340,31 @@ def animate_trajectories(
             s=HIGHLIGHT_SIZE if object_id == highlight_id else AGENT_MARKER_SIZE,
             color=color,
             edgecolors="black",
-            zorder=5
+            zorder=5,
+            alpha=0.85
         )
 
         txt = ax.text(
             0, 0, "",
-            fontsize=8,
+            fontsize=7.5,
             color=color,
             weight="bold",
-            bbox=dict(facecolor="white", alpha=0.6, edgecolor="none", pad=1.2),
-            visible=False
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                facecolor="white",
+                linewidth=0.8,
+                alpha=0.85
+            ),
+            visible=False,
+            zorder=20
         )
 
         trail_artists[object_id] = line
         point_artists[object_id] = point
         id_artists[object_id] = txt
 
-    # paused = {"value": False}
-    # current_frame = {"idx": 0}
     paused = {"value": False}
     current_frame = {"idx": 0}
     manual_step = {"value": False}
@@ -429,7 +436,7 @@ def animate_trajectories(
             point_artists[object_id].set_offsets(np.array([[x, y]]))
 
             if show_ids:
-                id_artists[object_id].set_position((x + 0.25, y - 0.25))
+                id_artists[object_id].set_position((x + 0.50, y - 0.50))
                 id_artists[object_id].set_text(str(object_id))
                 id_artists[object_id].set_visible(True)
             else:
@@ -443,15 +450,6 @@ def animate_trajectories(
         )
         return artists
 
-    # ani = FuncAnimation(
-    #     fig,
-    #     update,
-    #     frames=len(time_grid),
-    #     interval=1000 / fps,
-    #     blit=False,
-    #     repeat=True
-    # )
-
     frame_indices = range(0, len(time_grid), max(1, frame_step))
 
     ani = FuncAnimation(
@@ -464,18 +462,14 @@ def animate_trajectories(
     )
 
     if save_video is not None:
-        print("Téléchargement vidéo en cours...")
-        # writer = FFMpegWriter(fps=25)
-        # ani.save("video.mp4", writer=writer)
-        # ani.save(save_video, writer="ffmpeg", fps=fps, dpi=150)
+        print("Downloading the video...")
         if shutil.which("ffmpeg") is not None:
             ani.save(save_video, writer="ffmpeg", fps=fps, dpi=150)
         else:
-            print("ffmpeg non trouvé, export en GIF")
+            print("FFmpeg not found; exporting as GIF instead")
             gif_path = save_video.replace(".mp4", ".gif")
             ani.save(gif_path, writer="pillow", fps=fps)
-        print("Téléchargement vidéo terminé.")
-    # ani.save("trajectoires.mp4", writer="ffmpeg", fps=fps, dpi=150)
+        print("Video download completed.")
 
     plt.tight_layout()
     plt.show()

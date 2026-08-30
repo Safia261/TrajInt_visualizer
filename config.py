@@ -1,5 +1,5 @@
 DATASETS = {
-    "noname": { # changer le nom en TSS !
+    "tss": {
         "type": "csv",
         "folder": "trajectory_data",
         "image": "trajectory_data/background.png",
@@ -16,14 +16,14 @@ DATASETS = {
         "format": "centroid",
         "scale": "pixel",
         "pixels_per_meter": 21.185660421977854,
-        "fps": 2, # car "Each time step lasts 0.5 seconds"
+        "fps": 2, # because, according to the article, "Each time step lasts 0.5 seconds"
         "has_cars": True
     },
 
     "ind": {
         "type": "ind",
         "folder": "InD",
-        "image": None,  # géré dynamiquement lors du dataset load
+        "image": None,  # loaded automatically if there is an image when data is loaded
         "file_pattern": "*_tracks.csv", # à intégrer plus tard pour faciliter les choses
 
         "columns": {
@@ -54,7 +54,7 @@ DATASETS = {
             "br_y": "br_y"
         },
 
-        "format": "bbox", # conversion en coordonnées centroïde ensuite
+        "format": "bbox", # converted in centroïd afterwards
         "scale": "meter",
         "meters_to_pixels": 24,
         "fps": 29.97,
@@ -85,7 +85,7 @@ DATASETS = {
         "has_cars": False
     },
 
-    "stanford": {
+    "stanford": { # old version of SDD dataset
         "type": "pkl",
         "folder": "stanford",
 
@@ -102,13 +102,13 @@ DATASETS = {
             "meta": "metaId"
         },
 
-        "format": "centroid", # pas spécifié dans l'article
-        "scale": "meter", # pas spécifié dans l'article
-        "fps": 0.5, # pas spécifié dans l'article
+        "format": "centroid", # not specified in the article
+        "scale": "meter", # not specified in the article
+        "fps": 0.5, # not specified in the article
         "has_cars": True
     },
 
-    "stanford2": { # dataset correct !
+    "sdd": {
         "type": "txt",
         "folder": "stanford_campus_dataset/annotations",
 
@@ -127,10 +127,10 @@ DATASETS = {
             "label": 9
         },
 
-        "format": "bbox", # pas précisé dans l'article
-        "scale": "pixel", # pas précisé dans l'article mais semble cohérent d'après les valeurs
-        "pixels_per_meter": 1.0, # pas précisé dans l'article
-        "fps": 29.97, # pas précisé dans l'article mais d'après les propriétés des vidéos
+        "format": "bbox", # not specified in the article
+        "scale": "pixel", # not specified in the article but seems coherent with the values
+        "pixels_per_meter": 1.0, # not specified in the article
+        "fps": 29.97, # not specified in the article but according to the video properties
         "has_cars": True
     },
 
@@ -148,13 +148,13 @@ DATASETS = {
 
         "format": "centroid",
         "scale": "meter",
-        "fps": 1, # pas spécifié dans l'article
+        "fps": 1, # not specified in the article
         "has_cars": False
     }
 }
 
 
-# Constantes et noms communs pour les colonnes des fichiers
+# Constants and common column names for the dataframe files
 COL_TIME = "time_step"
 COL_ID = "object_id"
 COL_CLASS = "user_type"
@@ -170,7 +170,7 @@ CLASS_NAMES = {
     7: "Motorcycle"
 }
 
-# Couleurs des classes
+# Class colors
 CLASS_COLORS = {
     1: "tab:blue",
     2: "tab:green",
@@ -181,22 +181,22 @@ CLASS_COLORS = {
     7: "tab:yellow"
 }
 
-# Classes des autres véhicules (motorisés) pas pris en compte dans le sujet du stage
+# Classes of other road users not considered in the scope of this project
 VEHICLE_CLASSES = {3, 4, 5, 6, 7}
 
-# Affichage statique
+# Static display
 STATIC_LINEWIDTH = 1.8
 STATIC_ALPHA = 0.85
 ID_FONT_SIZE = 8
 
-# Affichage animé
+# Animated display
 AGENT_MARKER_SIZE = 50
 ANIM_LINEWIDTH = 1.8
 ANIM_ALPHA = 0.8
-DEFAULT_FPS = 25 # frame per second, dans le cas où un dataset n'indique pas son frame rate
+DEFAULT_FPS = 30 # frame per second, in case a dataset doesn't have one
 
-TAIL_LENGTH = None # peut-être pas nécessaire, à voir avec les autres datasets
+TAIL_LENGTH = None # maybe not necessary
 
-# Pour highlight un ID donné
+# To highlight a given ID
 HIGHLIGHT_COLOR = "red"
 HIGHLIGHT_SIZE = 100
