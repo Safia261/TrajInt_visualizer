@@ -1,21 +1,21 @@
-# Trajectories and Interactions Visualizer – Analyse des interactions piétons-cyclistes dans des espaces partagés
+# Trajectories and Interactions Visualizer – Analysis of Pedestrian-Cyclist Interactions in Shared Spaces
 
-## Description du projet
+## Project Description
 
-Ce projet propose un outil Python de **visualisation et d’analyse de trajectoires d'usargers routiers**, avec un focus particulier sur les **interactions entre piétons et cyclistes**.
+This project provides a Python tool for the **visualization and analysis of road-user trajectories**, with a particular focus on **pedestrian-cyclist interactions**.
 
-L’objectif est de :
-- visualiser des trajectoires issues de différents jeux de données,
-- filtrer les données pour isoler les interactions piétons-cyclistes dans des espaces partagés,
-- analyser et **classifier les interactions selon des critères spatio-temporelles** entre piétons et cyclistes.
+The objectives are to:
+- visualize trajectories from different datasets,
+- filter data to isolate pedestrian-cyclist interactions in shared spaces,
+- analyze and **classify interactions based on spatio-temporal criteria** between pedestrians and cyclists.
 
-Ce code est conçu dans le cadre d'un stage M2 pour **l'analyse et la modélisation des interactions piétons-micormobilité dans les epsaces partagés**.
+This code was developed as part of a Master's internship focused on the **analysis and modeling of pedestrian-micromobility interactions in shared spaces**.
 
 <p align="center">
 
 | <img src="img/ctv.gif" width="450"> | <img src="img/clusters_2sep.gif" width="300"> |
 |:----------------------------------:|:--------------------------------------------:|
-| Visualisation des trajectoires d'une vidéo de CTV | Clusters DBSCAN et convex hull pour la vidéo de CTV |
+| Trajectory visualization from a CTV video | DBSCAN clusters and convex hulls for a CTV video |
 
 </p>
 
@@ -23,147 +23,166 @@ Ce code est conçu dans le cadre d'un stage M2 pour **l'analyse et la modélisat
   <img src="img/noname_D1_nofilter.gif" width="600" />
 </p>
 
+---
+
+## Main Features
+
+- Visualization:
+  - **static** (complete trajectories)
+  - **animated** (evolution over time)
+
+- Support for multiple datasets:
+  - **CTV**: reference benchmark containing multiple pedestrian and cyclist trajectories and interactions (Germany).
+  - **Trajectory Shared Space (TSS)**: pedestrian, cyclist, and vehicle trajectories recorded on a straight bidirectional road near a university campus in Germany.
+  - **Stanford Drone Dataset (SDD)**: trajectories of road users (pedestrians, cyclists, cars, and skaters) at 8 locations on the Stanford University campus.
+  - **inD**: pedestrian, cyclist, and motor-vehicle trajectories recorded at 4 intersections in Germany.
+  - **VRU**: pedestrian and cyclist trajectories recorded at an intersection in Germany (this dataset was then discarded).
+
+- Support for different road users:
+  - pedestrians
+  - cyclists
+  - vehicles
+
+- Advanced data filtering
+
+- Trajectory smoothing using a **Kalman filter**
+
+- Interaction analysis:
+  - inter-agent distance
+  - relative speed
+  - approach and heading angles
+  - interaction classification
 
 ---
 
-## Fonctionnalités principales
-
-- Visualisation :
-  - **statique** (trajectoires complètes)
-  - **animée** (évolution dans le temps)
-
-- Support de plusieurs jeux de données:
-  - CTV: benchmark de référence avec des trejctoires et interactions multiples de piétons et cyclistes (Allemagne).
-  - Trajectory Shared Space (TSS): trajectoires de piétons, cyclsites et voitures dans une route rectiligne à double sens, près d'un campus univeristaire en Allemagne.
-  - Stanford Drone Dataset (SDD): trajectoires d'usagers (piétons, cyclistes, voitures, skaters) dans 8 endroits du campus de l'Univeristé de Stanford.
-  - inD: trajectoires de piétons, cyclistes et véhicules motorisés dans 4 intersections en Allemagne.
-  - VRU: trajectoires de piétons et cyclsites dans un intersection en Allemagne.
-
-- Gestion de différents usagers :
-  - piétons
-  - cyclistes
-  - véhicules
-
-- Filtres avancés pour nettoyer les données
-
-- Lissage des trajectoires (filtre de Kalman)
-
-- Analyse des interactions :
-  - distance inter-agents
-  - vitesse relative
-  - angles d’approche et de direction
-  - classification des interactions
-
----
-
-## Structure du projet
+## Project Structure
 
 ```bash
 .
-├── main.py                     # Point d’entrée (CLI)
-├── loader.py                   # Chargement et normalisation des datasets
-├── visualisation.py            # Visualisation (statique + animation)
-├── filters.py                  # Filtres sur les données
-├── config.py                   # Configuration des datasets
-├── utils.py                    # Fonctions utiles (critères spatio-temporels) pour l'analyse des interactions
-├── analysis_interactions.py    # Analyse et classification des interactions piétons-cyclistes
+├── main.py                     # Entry point (CLI)
+├── loader.py                   # Dataset loading and normalization
+├── visualisation.py            # Visualization (static + animation)
+├── filters.py                  # Data filtering
+├── config.py                   # Dataset configuration
+├── utils.py                    # Utility functions (spatio-temporal criteria)
+├── analysis_interactions.py    # Pedestrian-cyclist interaction analysis and classification
+├── export_data.py              # Export data (classified interactions, filtered dataframe)
+├── validation.py               # Launch the validation (confusion matrix, etc) of the automatic classification on TSS, inD and SDD
+├── validation_simulation.py    # Launch the validation of SPACiSS simulation results in comparison with real CTV scenarios
 │
-├── trajectory_data/            # Jeu de données TSS
-├── CTV_Dataset_v2/             # Jeu de données CTV
-├── stanford_campus_dataset/    # Jeu de données SDD
-├── VRU_dataset/                # Jeu de données VRU
+├── trajectory_data/            # TSS dataset
+├── CTV_Dataset_v2/             # CTV dataset
+├── stanford_campus_dataset/    # SDD dataset
+├── VRU_dataset/                # VRU dataset
 ```
 
 ---
 
-## Installation et utilisation du projet
+## Installation and Usage
 
-- Cloner le repository
-```
+- Clone the repository:
+
+```bash
 git clone <repo_url>
 cd TrajInt_visualizer
 ```
-- Installer les dépendances
-```
+
+- Install the dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
-- Commande minimale pour lancer une visualisation
-```
+
+- Minimal command to launch a visualization:
+
+```bash
 python main.py --dataset <dataset> --file <file> --input-mode <input-mode> --mode <mode>
 ```
-- Exemple de commande pour lancer la visualisation d'une vidéo de CTV
+
+- Example command to visualize a CTV video:
+
+```bash
+python main.py --dataset ctv_area1 --input-mode single --mode animated --file P2_03_01_07.csv --use-unique-timestamps
 ```
-python main.py --dataset ctv_area1 --input-mode single --file P2_03_01_07.csv --mode animated --use-unique-timestamps
-```
 
 ---
 
-## Options de commandes
-## Arguments disponibles
+## Command-Line Options
 
-| Command line | Description | Valeur par défaut | Valeurs possibles
-|--------------|-------------|------------------|------------------|
-| `--dataset` | Nom du dataset à utiliser | requis | `tss` `ctv_area1` `ctv_area2` `ind` `sdd` `vru`
-| `--mode` | Mode de visualisation | requis | `static` ou `animated`
-| `--input-mode` | Charger tous les fichiers ou un seul | `all` | `all` ou `single`
-| `--file` | Fichier spécifique à charger (si `--input-mode single`) | `None` | Voir le nom des fichiers dans chaque dataset
-| `--speed` | Facteur d’accélération temporelle | `1` | 
-| `--frame-step` | Saut de frames (réduit le nombre d’images affichées) | `1` | 
-| `--highlight-id` | ID d’un agent à mettre en évidence | `None` |
-| `--hide-ids` | Cache les identifiants des agents | `False` |
-| `--save-video` | Sauvegarde l’animation en vidéo | `False` | `nom_video.gif` ou `nom_video.mp4`
-| `--use-unique-timestamps` | Utilise uniquement les timestamps existants (pas d’interpolation) | `False` |
-| `--no-smoothing-kalman` | Désactive le filtre de Kalman pour CTV| `False` |
-| `--vru-type` | Type d’usagers VRU : `pedestrians`, `cyclists`, `both` | `cyclists` |
-| `--vru-behavior` | Comportement VRU : `starting`, `moving`, `stopping`, `waiting`, `all` | `starting` |
-| `--scene` | ID de scène (dataset Stanford) | `None` | par exemple `hyang` |
-| `--video` | ID de vidéo (dataset Stanford) | `None` | par exemple `video1` |
-
----
-
-## Filtrages appliqués aux jeux de données
-- CTV: filtre de Kalman pour lisser les trajectoires.
-- TSS: suppression des trajectoires des usagers dès qu'une voiture ets présente dans le même frame qu'un piéton et un cycliste en même temps.
-- SDD et inD: suppression des trajectoires du piéton et du cycliste dès qu'une voiture est présente dans un rayon de 5m autour de leur interaction.
+| Command line | Description | Default value | Possible values |
+|--------------|-------------|---------------|-----------------|
+| `--dataset` | Dataset to use | Required | `tss`, `ctv_area1`, `ctv_area2`, `ind`, `sdd`, `vru` |
+| `--mode` | Visualization mode | Required | `static` or `animated` |
+| `--input-mode` | Load all files or a single file | `all` | `all` or `single` |
+| `--file` | Specific file to load (if `--input-mode single`) | `None` | See file names in each dataset |
+| `--speed` | Temporal acceleration factor | `1` | |
+| `--frame-step` | Frame step (reduces the number of displayed frames) | `1` | |
+| `--highlight-id` | ID of the agent to highlight | `None` | |
+| `--hide-ids` | Hide agent IDs | `False` | |
+| `--save-video` | Save the animation as a video | `False` | `name.gif` or `name.mp4` |
+| `--use-unique-timestamps` | Use only existing timestamps (no interpolation) | `False` | |
+| `--no-smoothing-kalman` | Disable Kalman filtering for CTV | `False` | |
+| `--vru-type` | VRU type: `pedestrians`, `cyclists`, `both` | `cyclists` | |
+| `--vru-behavior` | VRU behavior: `starting`, `moving`, `stopping`, `waiting`, `all` | `starting` | |
+| `--scene` | Scene ID (Stanford dataset) | `None` | e.g. `hyang` |
+| `--video` | Video ID (Stanford dataset) | `None` | e.g. `video1` |
+| `--print-interactions` | Print in the terminal the detected and classified interactions of a video | `False` | |
+| `--analyze-interaction` | Analyze one interaction of a video (the user enters the interaction ID when asked in the terminal) | `False` | |
+| `--export-interactions` | Export in a CSV file the detected and classified interactions of a video | `False` | |
 
 ---
 
-## Critères spatio-temporels utilisés
+## Datasets
 
-| Critère | Définition | Utilité pour la classification | Interprétation |
-|--------|------------|-------------------------------|----------------|
-| DBSCAN | Détection de clusters et bruits | Détecter les groupes d'usagers (et leurs scissions) et les individus hors groupe | Cluster: au moins 2 agents du même type, dans la même direction et dans un rayon d'au plus 2m. Bruit: individu hors d'un cluster. |
-| Convex Hull | Enveloppe convexe contenant tous les points d'un même cluster | Détecter un autre type d'usager dans l'enveloppe | Faufilement |
-| Distance inter-agents | Distance euclidienne entre deux agents à chaque instant | Détecter la proximité et le début/fin d’interaction | Plus la distance est faible, plus l’interaction est forte |
-| Distance minimale | Distance la plus faible atteinte pendant l’interaction | Identifier les situations critiques | Permet de qualifier le niveau de risque |
-| Vitesse relative | Différence de vitesse entre deux agents | Détecter convergence ou divergence | Élevée = interaction dynamique |
-| Direction | Angle entre les vecteurs vitesses des agents | Caractériser la géométrie de l’interaction | Même direction, directions opposées, croisement (interaction perpendiculaire) |
-| Angle d’approche | Angle entre les directions de déplacement des agents | Caractériser l'approche du cycliste vers le piéton | Approche frontale, croisement, éloignement |
-| Position relative | Position d’un agent par rapport à l’autre (devant, derrière, latéral) | Comprendre la configuration spatiale | Permet de distinguer dépassement / suivi |
-| PET (Post-Encroachment Time) | Temps estimé entre le moment où un agent quitte une zone de conflit (intersection des trajectoires) et le moment où un second y entre | Détecter situations à risque | Faible PET = danger potentiel |
-| TTAC (Time-To-Avoided-Collision-Point) | Temps restant aux agents pour qu'ils s'évitent pendant l'interaction | Identifier le moment critique | Permet d’anticiper l’interaction |
-| Durée de l’interaction | Temps total de l’interaction | Classifier interactions courtes vs longues | Longue = interaction structurée |
+This project uses four pedestrian/cyclist trajectory datasets.
+
+| Dataset | Location | Road users | Data type | Source | Data used for this project | Filtering |
+|---------|----------|------------|-----------|--------|----------------------------|-----------|
+| [**CTV**](https://www.ifi-mec.tu-clausthal.de/ctv-dataset) | Germany | Pedestrians, cyclists, vehicles | Videos + trajectories | [Paper](https://ieeexplore.ieee.org/document/10422465) | area 1 (P2, P6), area 2 (P5_02) | Kalman filter |
+| [**TSS**](https://www.ifi-mec.tu-clausthal.de/ctv-dataset) | Germany | Pedestrians, cyclists, vehicles | Trajectories | [Paper](https://ieeexplore.ieee.org/document/8813849) | D1, D2 | Trajectories are removed whenever a vehicle is present in the same frame as both a pedestrian and a cyclist.|
+| [**inD**](https://gitlab.tu-clausthal.de/pka20/Trajectory-Prediction-Pedestrian) | Germany | Pedestrians, cyclists, vehicles | Trajectories | [Paper](https://ieeexplore.ieee.org/document/9304839) | Intersection Neuköllner Strasse (recordings 0-6), Intersection Frakenburg (recordings 18-29) | Pedestrian and cyclist trajectories are removed whenever a vehicle is present within a 5 m radius of their interaction.|
+| [**SDD**](https://cvgl.stanford.edu/projects/uav_data/) | USA | Pedestrians, cyclists, vehicles, skaters | Videos + trajectories | [Paper](https://link.springer.com/chapter/10.1007/978-3-319-46484-8_33) | bookstore (videos 0-6), coupa (videos 0-3), gates (videos 0, 2, 7), hyang (videos 0-7, 10-14), nexus (videos 1, 6-10), quad (videos 0-3) | Pedestrian and cyclist trajectories are removed whenever a vehicle is present within a 5 m radius of their interaction.|
 
 ---
 
-## Classification d’interactions piétons-cyclistes dans des epsaces partagés
 
-**Trois grandes catégories d'interactions:**
-- Individu - Individu
-- Groupe - Individu
-- Groupe - Groupe
+## Spatio-Temporal Criteria
 
-**Classes principales:**
-- Evitement
-- Dépassemnt
-- Suivi
-- Interaction perpendiculaire
-- Quasi-collision
-- Laisser-passer
-- Eloignement
-- Approche oblique
-- Faufilement et scission de groupe
-- Faufilement
-- Scission de groupe
-- Contournement
-- Interaction faible (trop éloignée et risque faible)
+| Criterion | Definition | Purpose for Classification | Interpretation |
+|-----------|------------|----------------------------|----------------|
+| **DBSCAN** | Detection of clusters and noise | Detect groups of users (including group splits) and individuals outside groups according to their direction and their distance | **Cluster**: at least 2 users of the same type, moving in the same direction and within a radius of at most 2 m. **Noise**: individual outside a cluster. |
+| **Convex Hull** | Convex envelope containing all points of a cluster | Detect another type of user inside the envelope | Weaving |
+| **Inter-agent distance** | Euclidean distance between two agents at each time step | Detect proximity and interaction start/end | The smaller the distance, the stronger the interaction |
+| **Minimum distance** | Smallest distance reached during the interaction | Identify critical situations | Used to characterize the level of risk |
+| **Relative speed** | Difference in speed between two agents | Detect convergence or divergence | High relative speed = dynamic interaction |
+| **Direction** | Angle between the agents' velocity vectors | Characterize interaction geometry | Same direction, opposite directions, crossing (perpendicular interaction) |
+| **Approach angle** | Angle between the agents' movement directions | Characterize the cyclist's approach toward the pedestrian | Frontal approach, crossing, moving away |
+| **Relative position** | Position of one agent relative to the other (ahead, behind, lateral) | Understand the spatial configuration | Helps distinguish overtaking from following |
+| **PET (Post-Encroachment Time)** | Estimated time between one agent leaving a conflict zone (intersection of trajectories) and another entering it | Detect risky situations | Low PET = potential danger |
+| **TTAC (Time-To-Avoided-Collision-Point)** | Remaining time for the agents to avoid each other during the interaction | Identify the critical moment | Helps anticipate the interaction |
+| **Interaction duration** | Total duration of the interaction | Classify short vs. long interactions | Long duration = structured interaction |
+
+---
+
+## Classification of Pedestrian-Cyclist Interactions in Shared Spaces
+
+### Three Main Interaction Categories
+
+- Individual–Individual
+- Group–Individual
+- Group–Group
+
+### Main Classes
+
+- Avoidance
+- Overtaking
+- Following
+- Crossing
+- Near-collision
+- Give way
+- Moving away
+- Weaving and group splitting
+- Weaving
+- Group splitting
+- Overtaking, avoiding and crossing group
+- Weak interaction (too far apart and low risk)
