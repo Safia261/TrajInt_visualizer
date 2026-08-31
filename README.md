@@ -103,7 +103,7 @@ python main.py --dataset ctv_area1 --input-mode single --file P2_03_01_07.csv --
 
 | Command line | Description | Valeur par défaut | Valeurs possibles
 |--------------|-------------|------------------|------------------|
-| `--dataset` | Nom du dataset à utiliser | requis | `noname` `ctv_area1` `ctv_area2` `ind` `stanford2` `vru`
+| `--dataset` | Nom du dataset à utiliser | requis | `tss` `ctv_area1` `ctv_area2` `ind` `sdd` `vru`
 | `--mode` | Mode de visualisation | requis | `static` ou `animated`
 | `--input-mode` | Charger tous les fichiers ou un seul | `all` | `all` ou `single`
 | `--file` | Fichier spécifique à charger (si `--input-mode single`) | `None` | Voir le nom des fichiers dans chaque dataset
