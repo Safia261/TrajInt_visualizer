@@ -1,0 +1,9 @@
+model,sfm,speed_type,n
+Moussaid,SFM,Fixed,20
+Moussaid,SFM,Random,20
+Moussaid,Without SFM,Fixed,20
+Moussaid,Without SFM,Random,20
+NES,SFM,Fixed,20
+NES,SFM,Random,20
+NES,Without SFM,Fixed,20
+NES,Without SFM,Random,20

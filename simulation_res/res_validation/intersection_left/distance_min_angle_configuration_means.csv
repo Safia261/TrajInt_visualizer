@@ -1,0 +1,5 @@
+model,speed_type,sfm,mean_distance_min,mean_angle_at_min
+Moussaid,Fixed,SFM,1.27668785,88.69011744999999
+Moussaid,Random,SFM,1.40963285,81.6983704
+NES,Fixed,SFM,1.1624681,91.8436366
+NES,Random,SFM,1.2447921,93.66604534999999

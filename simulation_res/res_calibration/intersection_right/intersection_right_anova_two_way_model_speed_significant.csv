@@ -1,0 +1,9 @@
+scenario,variable,effect,sum_sq,df,F,p_value,significant,n,n_moussaid,n_nes,n_fixed,n_random
+intersection_right,distance_min,C(model),12.587413284846427,1.0,111.61185565959535,1.4328192573528064e-16,True,80,40,40,40,40
+intersection_right,distance_min,C(speed_type),0.5915774924402012,1.0,5.245482944235167,0.024778380963266664,True,80,40,40,40,40
+intersection_right,angle_at_min,C(model),7471.252645808577,1.0,17.88572043687473,6.473768771593697e-05,True,80,40,40,40,40
+intersection_right,angle_increase_distance,C(model),16.933512168651113,1.0,5.884016210614918,0.01765134600467029,True,80,40,40,40,40
+intersection_right,relative_speed_mean,C(model),0.9312311414937035,1.0,6.481477106478887,0.01292486312562855,True,80,40,40,40,40
+intersection_right,relative_speed_mean,C(speed_type),5.067242948839187,1.0,35.26860056804686,8.07367205777243e-08,True,80,40,40,40,40
+intersection_right,cyclist_speed_mean,C(model),1.1698563159206998,1.0,7.617871722272218,0.007239374137907467,True,80,40,40,40,40
+intersection_right,cyclist_speed_mean,C(speed_type),5.130903729990712,1.0,33.41142489249665,1.5572241615686216e-07,True,80,40,40,40,40

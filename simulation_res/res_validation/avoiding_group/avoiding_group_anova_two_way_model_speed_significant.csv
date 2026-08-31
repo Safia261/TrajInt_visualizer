@@ -1,0 +1,8 @@
+scenario,variable,effect,sum_sq,df,F,p_value,significant,n,n_moussaid,n_nes,n_fixed,n_random
+avoiding_group,distance_min,C(model),0.2284864612278102,1.0,8.44955974409901,0.004782427037110965,True,80,40,40,40,40
+avoiding_group,distance_min,C(speed_type),0.2692830046753129,1.0,9.958239205280357,0.0022952716266391275,True,80,40,40,40,40
+avoiding_group,angle_increase_distance,C(model),496.79437455410516,1.0,27.63563071177776,1.301716149642626e-06,True,80,40,40,40,40
+avoiding_group,relative_speed_mean,C(model),0.7228857234358634,1.0,5.758938476937171,0.018854081049527096,True,80,40,40,40,40
+avoiding_group,relative_speed_mean,C(speed_type),4.359948985671739,1.0,34.733951933269694,9.742444314942941e-08,True,80,40,40,40,40
+avoiding_group,cyclist_speed_mean,C(model),0.6676915120875863,1.0,6.003221968015184,0.01658025184341968,True,80,40,40,40,40
+avoiding_group,cyclist_speed_mean,C(speed_type),4.5675090455670855,1.0,41.066525700958046,1.1175874069344958e-08,True,80,40,40,40,40

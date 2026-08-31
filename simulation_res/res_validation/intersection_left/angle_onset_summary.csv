@@ -1,0 +1,5 @@
+model,speed_type,sfm,mean_angle_increase_distance,std_angle_increase_distance,median_angle_increase_distance,min_angle_increase_distance,max_angle_increase_distance,n_simulations
+Moussaid,Fixed,SFM,6.3081666499999995,1.1862580798433844,6.174475,4.522167,8.76334,20
+Moussaid,Random,SFM,5.63239405,1.0591578721187425,5.56004,4.220508,8.71741,20
+NES,Fixed,SFM,8.266460200000001,2.1777069883331683,8.481456999999999,5.131963,11.551237,20
+NES,Random,SFM,7.844486549999999,2.237878517828048,8.111334,4.392704,10.994577,20

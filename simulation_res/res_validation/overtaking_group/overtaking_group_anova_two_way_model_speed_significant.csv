@@ -1,0 +1,7 @@
+scenario,variable,effect,sum_sq,df,F,p_value,significant,n,n_moussaid,n_nes,n_fixed,n_random
+overtaking_group,angle_at_min,C(model),177.94271619130126,1.0,5.083661720226022,0.027031991735519505,True,80,40,40,40,40
+overtaking_group,angle_increase_distance,C(model),14.941453170446533,1.0,4.630929263053788,0.03457602418532201,True,80,40,40,40,40
+overtaking_group,relative_speed_mean,C(model),1.8607375981009522,1.0,11.916072898054349,0.0009122763053582834,True,80,40,40,40,40
+overtaking_group,relative_speed_mean,C(speed_type),1.330406076971197,1.0,8.519855681630178,0.004619315641999022,True,80,40,40,40,40
+overtaking_group,cyclist_speed_mean,C(model),1.5912488882175952,1.0,10.698346238519393,0.001613393246880148,True,80,40,40,40,40
+overtaking_group,cyclist_speed_mean,C(speed_type),1.1539777378889893,1.0,7.758467881984519,0.006745741702534612,True,80,40,40,40,40

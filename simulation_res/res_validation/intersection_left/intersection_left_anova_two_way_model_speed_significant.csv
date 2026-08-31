@@ -1,0 +1,6 @@
+scenario,variable,effect,sum_sq,df,F,p_value,significant,n,n_moussaid,n_nes,n_fixed,n_random
+intersection_left,angle_increase_distance,C(model),86.96059903017328,1.0,28.32700846834793,1.002734325405384e-06,True,80,40,40,40,40
+intersection_left,relative_speed_mean,C(model),1.0546641439511506,1.0,5.99276326854276,0.016671422730489188,True,80,40,40,40,40
+intersection_left,relative_speed_mean,C(speed_type),1.2615118803840295,1.0,7.168103801531986,0.009088537251773374,True,80,40,40,40,40
+intersection_left,cyclist_speed_mean,C(model),1.0922119228097713,1.0,5.5360416526769285,0.021217185679803793,True,80,40,40,40,40
+intersection_left,cyclist_speed_mean,C(speed_type),1.5753539700063157,1.0,7.984920337830707,0.00602327109281665,True,80,40,40,40,40
