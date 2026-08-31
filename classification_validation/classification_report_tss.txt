@@ -1,0 +1,18 @@
+                  precision    recall  f1-score   support
+
+       AVOIDANCE       1.00      1.00      1.00        10
+ BYPASSING_GROUP       1.00      1.00      1.00        10
+ CLOSE_COLLISION       0.00      0.00      0.00         0
+        CROSSING       0.00      0.00      0.00         0
+  CROSSING_GROUP       0.00      0.00      0.00         0
+       FOLLOWING       1.00      1.00      1.00         2
+        GIVE_WAY       0.00      0.00      0.00         0
+     GROUP_SPLIT       0.00      0.00      0.00         0
+     MOVING_AWAY       1.00      1.00      1.00         4
+      OVERTAKING       1.00      1.00      1.00         7
+OVERTAKING_GROUP       1.00      0.91      0.95        11
+WEAK_INTERACTION       0.00      0.00      0.00         0
+
+        accuracy                           0.98        44
+       macro avg       0.50      0.49      0.50        44
+    weighted avg       1.00      0.98      0.99        44
