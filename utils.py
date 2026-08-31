@@ -1401,8 +1401,8 @@ def compute_relative_position_series(df, id_A, id_B, fps=None, start=None, end=N
 
         # start and end if the interaction
         if start is not None and end is not None:
-            plt.scatter(x_rel[start_idx], y_rel[start_idx], color="green", s=60, label=f"Start interaction (at {(start/fps):.2f}s)")
-            plt.scatter(x_rel[end_idx], y_rel[end_idx], color="orange", s=60, label=f"End interaction (at {(end/fps):.2f}s)")
+            plt.scatter(x_rel[start_idx], y_rel[start_idx], color="green", s=180, label=f"Start interaction (at {(start/fps):.2f}s)", zorder=1000)
+            plt.scatter(x_rel[end_idx], y_rel[end_idx], color="orange", s=180, label=f"End interaction (at {(end/fps):.2f}s)", zorder=1000)
         plt.xlabel("Relative x (m)", fontsize=15)
         plt.ylabel("Relative y (m)", fontsize=15)
         plt.tick_params(axis="both", labelsize=13)
@@ -1609,7 +1609,8 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                         pts[:, 0], pts[:, 1],
                         c=color,
                         marker=marker,
-                        label=f"{name} cluster {idx}"
+                        label=f"{name} cluster {idx}",
+                        s=60
                     )
                     legend[f"{name} cluster {idx}"] = sc
 
@@ -1620,7 +1621,8 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                         data[name]["noise"][:, 1],
                         c=noise_color,
                         marker="x",
-                        label=f"{name} noise"
+                        label=f"{name} noise",
+                        s=60
                     )
                     legend[f"{name} noise"] = sc
 
@@ -1638,13 +1640,15 @@ def compute_clusters_and_hulls_over_time(df, min_samples=2,
                 for (x, y), aid in zip(data[name]["points"], data[name]["ids"]):
                     if aid == highlight_id:
                         ax.scatter(x, y, s=200, facecolors="none", edgecolors="red", linewidths=2, zorder=20)
-                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=8, color=color, zorder=21)
+                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=12, color=color, zorder=21)
                     else:
-                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=8, color=color)
+                        ax.text(x + 0.2, y - 0.2, str(aid), fontsize=12, color=color)
 
-            ax.set_title(f"DBSCAN clusters and convex hulls - Frame {t} ({t/fps:.2f}s)", fontsize=15, fontweight="bold")
+            ax.set_title(f"DBSCAN clusters and convex hulls\nFrame {t} ({t/fps:.2f}s)", fontsize=15, fontweight="bold")
             ax.set_xlim(df["x_m"].min(), df["x_m"].max())
             ax.set_ylim(df["y_m"].max(), df["y_m"].min())
+            # ax.set_xlim(1, 70)
+            # ax.set_ylim(df["y_m"].max(), 1)
             ax.set_xlabel("x (m)", fontsize=15)
             ax.set_ylabel("y (m)", fontsize=15)
             ax.tick_params(axis="both", labelsize=13)

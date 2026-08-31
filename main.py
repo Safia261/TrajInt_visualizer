@@ -269,9 +269,8 @@ def main():
             # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[1,14])
             # R_values = [0.1, 0.5, 1.0, 2.0, 5.0]
             # compare_kalman_R_two_agents(df, R_values)
-            # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[1,14])
-            # distances = analyze_cycl_ped_distances(df)
             df = apply_kalman_filter(df, R_value=1.0)
+            # analyze_speeds(df, cfg, cfg["fps"], agent_ids=[1,14])
             # df = resample_dataset(df, cfg["fps"],target_dt=0.4)
             # export_filtered_data_original(df, args.dataset, cfg["folder"], args.file, "CTV_filtered")
             # export_filtered_data(df, args.dataset, args.file, "data_filtered/ctv_josue", suffix="filtered_23111")
@@ -313,6 +312,7 @@ def main():
 
                     print("\nAnalysis of the interaction ", interaction_id)
                     res_inter = compute_one_interaction_features(df, history_hc, interactions[interaction_id], fps=cfg["fps"], plot=True)
+                    analyze_speeds(df, cfg, cfg["fps"], [2, 11], start=interactions[interaction_id]["start"], end=interactions[interaction_id]["end"])
 
             if args.export_interactions:
                 if not interactions:

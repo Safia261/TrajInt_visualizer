@@ -250,15 +250,17 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None, start=None, end=N
         smooth = lowess(speeds_ms, times/fps,frac=0.05)
         ax_ms.plot(smooth[:,0], smooth[:,1], linewidth=3, color ="red", label="Smoothed speed", alpha=0.5)
 
-    ax_ms.set_title("Speed evolution (m/s)")
-    ax_ms.set_xlabel("Time (s)")
-    ax_ms.set_ylabel("Speed (m/s)")
+    ax_ms.set_title("Speed evolution (m/s)", fontsize=15, fontweight="bold")
+    ax_ms.set_xlabel("Time (s)", fontsize=15)
+    ax_ms.set_ylabel("Speed (m/s)", fontsize=15)
+    ax_ms.tick_params(axis="both", labelsize=13)
     if intervals_sec is not None:
         add_time_markers(ax_ms, intervals_sec)
     ax_ms.grid()
 
     # axe secondaire (km/h)
     ax_kmh = ax_ms.twinx()
+    ax_kmh.tick_params(axis="both", labelsize=13)
     for d in data:
         aid = d["id"]
         cls = d["class"]
@@ -270,13 +272,13 @@ def analyze_speeds(df, cfg, fps, agent_ids=None, classes=None, start=None, end=N
 
         ax_kmh.plot(times/fps, speeds_kmh, label=label, color=color)
 
-    ax_kmh.set_ylabel("Speed (km/h)")
+    ax_kmh.set_ylabel("Speed (km/h)", fontsize=15)
 
     # Légende fusionnée
     handles1, labels1 = ax_ms.get_legend_handles_labels()
     handles2, labels2 = ax_kmh.get_legend_handles_labels()
     by_label = dict(zip(labels1 + labels2, handles1 + handles2))
-    ax_ms.legend(by_label.values(), by_label.keys())
+    ax_ms.legend(by_label.values(), by_label.keys(), fontsize=15)
 
     plt.tight_layout()
     plt.show()

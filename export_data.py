@@ -576,7 +576,7 @@ def compute_binary_interaction_statistics(csv_path, save_xlsx=True, name_output=
     )*100
     plt.figure(figsize=(14,10))
     sns.heatmap(speed_heat,annot=True,fmt=".1f",cmap='viridis', annot_kws={"size": 16})
-    plt.title("Pedestrian and cyclist speed variation combinations", fontsize=22)
+    plt.title("Pedestrian and cyclist speed variation combinations (%)", fontsize=18, fontweight="bold")
     plt.xlabel("Pedestrian speed variation", fontsize=18)
     plt.ylabel("Cyclist speed variation", fontsize=18)
     plt.xticks(rotation=45, ha="right", fontsize=16)
@@ -601,7 +601,7 @@ def compute_binary_interaction_statistics(csv_path, save_xlsx=True, name_output=
         cmap='Greens',
         annot_kws={"size": 16} 
     )
-    plt.title("Pedestrian and cyclist spatial deviation combinations", fontsize=22)
+    plt.title("Pedestrian and cyclist spatial deviation combinations (%)", fontsize=18, fontweight="bold")
     plt.xlabel("Pedestrian spatial variation", fontsize=18)
     plt.ylabel("Cyclist spatial variation", fontsize=18)
     plt.xticks(rotation=45, ha="right", fontsize=16)
@@ -637,7 +637,7 @@ def compute_binary_interaction_statistics(csv_path, save_xlsx=True, name_output=
         annot=False,
         fmt=".1f"
     )
-    plt.title("Pedestrian and cyclist speed-spatial variation combinations", fontsize=22)
+    plt.title("Pedestrian and cyclist speed-spatial variation combinations (%)", fontsize=18, fontweight="bold")
     plt.xlabel("Spatial variation combination (ped / cyc)", fontsize=18)
     plt.ylabel("Speed variation combination (ped / cyc)", fontsize=18)
     plt.xticks(rotation=45, ha="right", fontsize=16)
@@ -713,7 +713,7 @@ def compute_binary_interaction_statistics(csv_path, save_xlsx=True, name_output=
         for autotext in autotexts:
             autotext.set_fontsize(16)
 
-        ax.set_title(title, fontsize=22, pad=15)
+        ax.set_title(title, fontsize=18, pad=15, fontweight="bold")
         ax.legend(
             wedges,
             counts.index,
@@ -824,8 +824,10 @@ def compute_binary_interaction_statistics(csv_path, save_xlsx=True, name_output=
         pctdistance=0.7
     )
 
-    plt.title("Global distribution of the most reactive agent", fontsize=22)
+    plt.title("Global distribution of the most reactive agent", fontsize=18, fontweight="bold")
     plt.tight_layout()
+    plt.savefig("../results_analyse_classification/sdd/binary_interactions/most_reactive_agent.png", 
+                    dpi=300, bbox_inches="tight")
     plt.show()
 
     # excel export
@@ -1177,7 +1179,7 @@ def compute_group_interaction_statistics(csv_path, save_xlsx=True, name_output="
             for autotext in autotexts:
                 autotext.set_fontsize(16)
     
-            ax.set_title(title, fontsize=22, pad=15)
+            ax.set_title(title, fontsize=18, pad=15, fontweight="bold")
             ax.legend(
                 wedges,
                 counts.index,
